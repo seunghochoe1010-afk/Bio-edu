@@ -16,6 +16,8 @@ APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 LIBERAL_REVIEWS_PATH = DATA_DIR / "liberal_arts_reviews.json"
 GRADUATION_TIPS_PATH = DATA_DIR / "graduation_tips.json"
+# 학번별 개인 데이터를 저장하는 폴더
+USER_DATA_DIR = DATA_DIR / "users"
 
 # -----------------------------------------------------------------------------
 # 1. 페이지 기본 설정
@@ -178,6 +180,46 @@ TEACHING_THEORY_POOL = [
     "교육평가",
 ]
 
+# 기초교양필수 과목 — 1학년 필수 이수, 교양 학점으로 인정
+# 구분: 교필(교양필수), 교선필수(교양선택이지만 1학년 반드시 이수)
+BASIC_LIBERAL_COURSE_NAMES = [
+    "일반생물1", "일반생물2",
+    "일반물리1", "일반물리2",
+    "일반화학1", "일반화학2",
+    "일반지구과학1", "일반지구과학2",
+]
+
+BASIC_LIBERAL_COURSES_INFO = [
+    {"과목명": "일반생물1",     "학점": 3, "개설학년": 1, "개설학기": 1, "구분": "교필"},
+    {"과목명": "일반생물2",     "학점": 3, "개설학년": 1, "개설학기": 2, "구분": "교필"},
+    {"과목명": "일반물리1",     "학점": 3, "개설학년": 1, "개설학기": 1, "구분": "교선필수"},
+    {"과목명": "일반물리2",     "학점": 3, "개설학년": 1, "개설학기": 2, "구분": "교선필수"},
+    {"과목명": "일반화학1",     "학점": 3, "개설학년": 1, "개설학기": 1, "구분": "교선필수"},
+    {"과목명": "일반화학2",     "학점": 3, "개설학년": 1, "개설학기": 2, "구분": "교선필수"},
+    {"과목명": "일반지구과학1", "학점": 3, "개설학년": 1, "개설학기": 1, "구분": "교선필수"},
+    {"과목명": "일반지구과학2", "학점": 3, "개설학년": 1, "개설학기": 2, "구분": "교선필수"},
+]
+
+
+def get_basic_liberal_df() -> pd.DataFrame:
+    """기초교양필수 DataFrame. 전공 카탈로그에 있으면 그 학점을 사용하고, 없으면 기본값 3점을 씁니다."""
+    rows = []
+    for info in BASIC_LIBERAL_COURSES_INFO:
+        name = info["과목명"]
+        catalog_rows = MAJOR_COURSE_CATALOG[MAJOR_COURSE_CATALOG["과목명"] == name]
+        if not catalog_rows.empty:
+            r = catalog_rows.iloc[0]
+            rows.append({
+                "과목명": name,
+                "학점": int(r.get("학점", info["학점"])),
+                "개설학년": int(r.get("개설학년", info["개설학년"])),
+                "개설학기": int(r.get("개설학기", info["개설학기"])),
+                "구분": info["구분"],
+            })
+        else:
+            rows.append(info.copy())
+    return pd.DataFrame(rows)
+
 PROFESSOR_EMOJI = {
     "최*욱교수님": "🧬",
     "정*영교수님": "👩‍🏫",
@@ -244,6 +286,15 @@ def init_session_state() -> None:
     st.session_state.selected_required_courses = []
   if "selected_elective_courses" not in st.session_state:
     st.session_state.selected_elective_courses = []
+  if "student_id" not in st.session_state:
+    st.session_state.student_id = ""
+  if "user_logged_in" not in st.session_state:
+    st.session_state.user_logged_in = False
+  # 과목별 이수 여부 체크 상태 {과목명: True/False}
+  if "course_checks" not in st.session_state:
+    st.session_state.course_checks = {}
+  if "inp_기초교양" not in st.session_state:
+    st.session_state.inp_기초교양 = 0
 
 
 init_session_state()
@@ -266,6 +317,82 @@ def save_json_data(path: Path, data) -> None:
   path.parent.mkdir(parents=True, exist_ok=True)
   with open(path, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+# =============================================================================
+# 학번별 개인 데이터 저장 (졸업요건 입력 내용 유지)
+# =============================================================================
+
+def load_user_data(student_id: str) -> dict:
+  """학번으로 저장된 개인 데이터를 불러옵니다."""
+  path = USER_DATA_DIR / f"{student_id}.json"
+  return load_json_data(path, {})
+
+
+def save_user_data(student_id: str, data: dict) -> None:
+  """학번 기준으로 개인 데이터를 저장합니다."""
+  USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+  path = USER_DATA_DIR / f"{student_id}.json"
+  save_json_data(path, data)
+
+
+def get_current_user_save_data() -> dict:
+  """현재 세션 상태에서 저장할 졸업요건 데이터를 추출합니다."""
+  return {
+    "선택_학번": st.session_state.get("선택_학번", STUDENT_YEARS[0]),
+    "course_checks": st.session_state.get("course_checks", {}),
+    "교양_과목": st.session_state.get("교양_과목", {}),
+    "교직_이수": st.session_state.get("교직_이수", {}),
+    "inp_일선": st.session_state.get("inp_일선", 0),
+  }
+
+
+def get_course_prefix(name: str) -> str:
+  """과목명으로 체크리스트 위젯 prefix를 반환합니다."""
+  if name in MAJOR_REQUIRED_COURSES:
+    return "전필"
+  if name in TEACHING_REQUIRED_COURSES:
+    return "교직필수"
+  if name in TEACHING_THEORY_POOL:
+    return "교직이론"
+  if name in BASIC_LIBERAL_COURSE_NAMES:
+    return "기초교양"
+  return "전선"
+
+
+def get_widget_checked_credits(courses_df: pd.DataFrame, prefix: str) -> int:
+  """Streamlit 위젯 키에서 직접 체크 상태를 읽어 학점 합계를 반환합니다.
+  (course_checks 딕셔너리 대신 위젯 키를 사용하므로 렌더링 순서 버그가 없습니다.)"""
+  if courses_df.empty:
+    return 0
+  total = 0
+  for _, row in courses_df.iterrows():
+    name = str(row["과목명"])
+    if st.session_state.get(f"chk_{prefix}_{name}", False):
+      total += int(row.get("학점", 0))
+  return total
+
+
+def apply_user_data(data: dict) -> None:
+  """저장된 데이터를 세션 상태에 적용합니다."""
+  if "선택_학번" in data and data["선택_학번"] in STUDENT_YEARS:
+    st.session_state.선택_학번 = data["선택_학번"]
+  if "course_checks" in data:
+    st.session_state.course_checks = data["course_checks"]
+    # 위젯 키도 함께 설정해야 체크박스가 올바른 상태로 렌더링됩니다
+    for name, val in data["course_checks"].items():
+      prefix = get_course_prefix(name)
+      st.session_state[f"chk_{prefix}_{name}"] = bool(val)
+  if "교양_과목" in data:
+    merged = {area: [] for area in ALL_LIBERAL_ARTS_AREAS}
+    merged.update(data["교양_과목"])
+    st.session_state.교양_과목 = merged
+  if "교직_이수" in data:
+    merged = {key: [] for key in TEACHING_LICENSE_KEYS}
+    merged.update(data["교직_이수"])
+    st.session_state.교직_이수 = merged
+  if "inp_일선" in data:
+    st.session_state.inp_일선 = data["inp_일선"]
 
 
 def course_review_key(과목명: str, 과목코드: str = "") -> str:
@@ -385,7 +512,7 @@ def calc_effective_credits(학번: str, credits: dict) -> dict:
   일선_유효 = 일선 + 일선_교양대체
   총학점_인정 = (
       교양_인정 + credits["교직"] + credits["생물전공"]
-      + credits["전선"] + credits["심화"] + 일선
+      + credits["전선"] + 일선_유효   # 심화는 전선에 통합, 일선은 교양대체 포함
   )
   return {
       "교양_인정": 교양_인정,
@@ -571,9 +698,13 @@ def add_message(role: str, content: str) -> None:
 
 
 def get_user_credits() -> dict:
-  """학점 계산 메뉴에 입력한 값을 챗봇에서도 사용할 수 있게 반환합니다."""
+  """학점 계산 메뉴에 입력한 값을 챗봇에서도 사용할 수 있게 반환합니다.
+  교양 = 역량/균형/기초SW 교양 + 기초교양필수(일반생물/물리/화학/지구과학) 합계."""
   return {
-      "교양": sum_liberal_arts_credits(st.session_state.교양_과목),
+      "교양": (
+          sum_liberal_arts_credits(st.session_state.교양_과목)
+          + st.session_state.get("inp_기초교양", 0)
+      ),
       "교직": st.session_state.inp_교직,
       "생물전공": st.session_state.inp_생물전공,
       "전선": st.session_state.inp_전선,
@@ -627,6 +758,87 @@ def render_chatbot() -> None:
 # =============================================================================
 # UI 컴포넌트
 # =============================================================================
+
+def render_graduation_dashboard(
+    학번: str,
+    전필_점: int,
+    교직_점: int,
+    전선_점: int,
+    교양_점: int,     # 역량교양+기초SW+균형교양 학점
+    기초교양_점: int, # 일반생물/물리/화학/지구과학 학점
+    일선_점: int,
+) -> None:
+  """상단 진행률 대시보드 — 졸업요건 충족 현황을 한눈에 표시합니다."""
+  req = GRADUATION_REQUIREMENTS[학번]
+
+  교양_총 = 교양_점 + 기초교양_점
+  교양_최소 = req["교양"]["최소"]        # 32
+  교양_최대 = req["교양"]["최대인정"]    # 45
+  일선_대체_한도 = req["교양"]["일선대체최대"]  # 12
+  교양_인정 = min(교양_총, 교양_최대)
+  교양_초과 = max(0, 교양_총 - 교양_최소)
+  일선_교양대체 = min(교양_초과, 일선_대체_한도)
+  일선_유효 = 일선_점 + 일선_교양대체
+  일선_목표 = req["일선"]               # 24
+
+  def _bar(label: str, current: int, target: int) -> None:
+    pct = min(current / target, 1.0) if target > 0 else 0.0
+    icon = "✅" if current >= target else ("⚠️" if pct >= 0.5 else "❌")
+    st.markdown(f"**{label}** {icon}&nbsp; {current} / {target}점")
+    st.progress(pct)
+
+  col1, col2, col3, col4, col5 = st.columns(5)
+  with col1:
+    _bar("🔬 전공필수(생물)", 전필_점, req["생물전공"])
+  with col2:
+    _bar("📋 교직", 교직_점, req["교직"])
+  with col3:
+    # 전선 27점 + 심화 21점 통합 표시
+    전선_목표 = req["전선"]   # 48 (심화 포함)
+    _bar("📖 전공선택·심화", 전선_점, 전선_목표)
+  with col4:
+    교양_icon = "✅" if 교양_총 >= 교양_최소 else ("⚠️" if 교양_총 >= 교양_최소 * 0.5 else "❌")
+    st.markdown(f"**🌱 교양** {교양_icon}&nbsp; {교양_총} / {교양_최소}점")
+    st.progress(min(교양_총 / 교양_최소, 1.0) if 교양_최소 > 0 else 0.0)
+    if 일선_교양대체 > 0:
+      st.caption(f"→ 교양 초과 {일선_교양대체}점 일선 자동 인정")
+  with col5:
+    _bar("📝 일선(자동포함)", 일선_유효, 일선_목표)
+    if 일선_교양대체 > 0:
+      st.caption(f"= {일선_점}점 + 교양대체 {일선_교양대체}점")
+
+  총계 = 교양_인정 + 전필_점 + 교직_점 + 전선_점 + 일선_유효
+  총기준 = req["총학점"]
+  총icon = "✅ 졸업 가능" if 총계 >= 총기준 else f"❌ {총기준 - 총계}점 부족"
+  st.markdown(f"#### 총 이수학점 {총icon} — **{총계} / {총기준}점**")
+  st.progress(min(총계 / 총기준, 1.0))
+
+
+def render_course_checklist(courses_df: pd.DataFrame, prefix: str) -> None:
+  """과목 체크리스트 그리드를 렌더링합니다.
+  학점 합계는 get_widget_checked_credits()로 렌더링 전에 읽어야 정확합니다."""
+  if courses_df.empty:
+    st.info("등록된 과목 데이터가 없습니다.")
+    return
+
+  sorted_df = courses_df.sort_values(["개설학년", "개설학기", "과목명"]).reset_index(drop=True)
+  cols = st.columns(3)
+  for i, row in sorted_df.iterrows():
+    name = str(row["과목명"])
+    credit = int(row.get("학점", 0))
+    yr = row.get("개설학년", "")
+    sem = row.get("개설학기", "")
+    semester_hint = f"{yr}-{sem}학기" if yr and sem else ""
+
+    with cols[i % 3]:
+      checked = st.checkbox(
+          f"{name} ({credit}점)",
+          key=f"chk_{prefix}_{name}",   # Streamlit이 위젯 상태 관리
+          help=semester_hint or None,
+      )
+      # course_checks 딕셔너리도 동기화 (저장 기능에 사용)
+      st.session_state.course_checks[name] = checked
+
 
 def render_liberal_arts_course_input(area: str) -> None:
   """학점 계산 메뉴: 본인이 이수한 교양 과목 등록."""
@@ -997,122 +1209,122 @@ def page_graduation_tips() -> None:
 
 
 # =============================================================================
-# 페이지: 학점 · 졸업 계산
+# 페이지: 졸업요건 확인 (체크리스트 그리드 + 진행률 대시보드)
 # =============================================================================
 
 def page_credit_calculator() -> None:
   st.title("🧮 졸업요건 확인")
-  st.markdown("전공필수·교직필수·교직이론·전공선택 과목을 선택하면 학점이 자동 계산됩니다.")
 
+  # 학번 선택
   학번_인덱스 = STUDENT_YEARS.index(st.session_state.선택_학번)
   선택_학번 = st.selectbox(
       "학번 선택", STUDENT_YEARS, index=학번_인덱스, key="calc_학번",
   )
   st.session_state.선택_학번 = 선택_학번
 
+  # 과목 분류
   catalog = MAJOR_COURSE_CATALOG.copy()
   major_required_df = catalog[catalog["과목명"].isin(MAJOR_REQUIRED_COURSES)].copy()
   teaching_required_df = catalog[catalog["과목명"].isin(TEACHING_REQUIRED_COURSES)].copy()
   teaching_theory_df = catalog[catalog["과목명"].isin(TEACHING_THEORY_POOL)].copy()
-  elective_df = catalog[
-      ~catalog["과목명"].isin(
-          set(MAJOR_REQUIRED_COURSES + TEACHING_REQUIRED_COURSES + TEACHING_THEORY_POOL)
-      )
-  ].copy()
+  basic_liberal_df = get_basic_liberal_df()  # 일반생물/물리/화학/지구과학
 
-  def label_for_row(row: pd.Series) -> str:
-    return f"{row['개설학년']}-{row['개설학기']} | {row['과목명']} ({row['학점']}점)"
+  # 전공선택: 전필·교직·교직이론·기초교양필수를 모두 제외한 나머지
+  excluded_names = set(
+      MAJOR_REQUIRED_COURSES + TEACHING_REQUIRED_COURSES
+      + TEACHING_THEORY_POOL + BASIC_LIBERAL_COURSE_NAMES
+  )
+  elective_df = catalog[~catalog["과목명"].isin(excluded_names)].copy()
 
-  major_required_df["라벨"] = major_required_df.apply(label_for_row, axis=1) if not major_required_df.empty else []
-  teaching_required_df["라벨"] = teaching_required_df.apply(label_for_row, axis=1) if not teaching_required_df.empty else []
-  teaching_theory_df["라벨"] = teaching_theory_df.apply(label_for_row, axis=1) if not teaching_theory_df.empty else []
-  elective_df["라벨"] = elective_df.apply(label_for_row, axis=1) if not elective_df.empty else []
+  # ── 위젯 키에서 직접 학점 계산 (렌더링 전에 읽어도 정확)
+  전필_점 = get_widget_checked_credits(major_required_df, "전필")
+  교직필수_점 = get_widget_checked_credits(teaching_required_df, "교직필수")
+  교직이론_점 = get_widget_checked_credits(teaching_theory_df, "교직이론")
+  교직_점 = 교직필수_점 + 교직이론_점
+  전선_점 = get_widget_checked_credits(elective_df, "전선")
+  기초교양_점 = get_widget_checked_credits(basic_liberal_df, "기초교양")
+  교양_점 = sum_liberal_arts_credits(st.session_state.교양_과목)   # 역량/균형/기초SW
+  일선_점 = st.session_state.inp_일선
 
-  tab_전필, tab_교직필수, tab_교직이론, tab_전선, tab_교양, tab_교직, tab_결과 = st.tabs(
-      ["전공필수 선택", "교직필수 선택", "교직이론(8중6)", "전공선택 선택", "교양 이수", "교직 자격", "분석 결과"]
+  # 교직이론 과목 수 (위젯 키 직접 읽기)
+  theory_cnt = sum(
+      1 for n in TEACHING_THEORY_POOL
+      if st.session_state.get(f"chk_교직이론_{n}", False)
   )
 
+  # 세션 상태 동기화 (챗봇 분석에 사용)
+  st.session_state.inp_생물전공 = 전필_점
+  st.session_state.inp_교직 = 교직_점
+  st.session_state.inp_전선 = 전선_점
+  st.session_state.inp_심화 = 0
+  st.session_state.inp_기초교양 = 기초교양_점
+
+  # ── 진행률 대시보드 (상단 항상 표시) ──────────────────────────────────
+  with st.container(border=True):
+    st.markdown("##### 📊 현재 졸업요건 달성 현황")
+    render_graduation_dashboard(
+        선택_학번, 전필_점, 교직_점, 전선_점, 교양_점, 기초교양_점, 일선_점,
+    )
+
+  st.markdown("")
+
+  # ── 탭별 체크리스트 ────────────────────────────────────────────────────
+  tab_전필, tab_교직필수, tab_교직이론, tab_전선, tab_기초교양, tab_교양, tab_교직, tab_결과 = st.tabs([
+      "📌 전공필수", "📌 교직필수", "📚 교직이론(8→6)", "📖 전공선택·심화",
+      "🔬 기초교양필수", "🌱 교양 이수", "📝 교직 자격", "📊 분석 결과",
+  ])
+
   with tab_전필:
-    st.caption("전공필수 과목(지정 8과목) 중 이수한 과목을 선택하세요.")
+    st.caption(f"이수한 과목에 체크하세요 — 현재 **{전필_점}점** 선택됨 (목표 23점)")
     if major_required_df.empty:
-      st.info("전공필수 과목 데이터가 없습니다.")
+      st.info("전공필수 과목 데이터가 없습니다. major_course_catalog.json을 확인해 주세요.")
     else:
-      선택_전필 = st.multiselect(
-          "전공필수 이수 과목",
-          options=major_required_df["라벨"].tolist(),
-          default=st.session_state.selected_required_courses,
-          key="required_courses_ms",
-      )
-      st.session_state.selected_required_courses = 선택_전필
-      selected_rows = major_required_df[major_required_df["라벨"].isin(선택_전필)]
-      st.session_state.inp_생물전공 = int(selected_rows["학점"].sum())
-      st.metric("전공필수 자동 합계", f"{st.session_state.inp_생물전공}점")
+      render_course_checklist(major_required_df, "전필")
 
   with tab_교직필수:
-    st.caption("교직필수 과목을 선택하세요.")
+    st.caption(f"이수한 과목에 체크하세요 — 현재 **{교직필수_점}점** 선택됨")
     if teaching_required_df.empty:
       st.info("교직필수 과목 데이터가 없습니다.")
-      teaching_required_credit = 0
     else:
-      selected_teach_required = st.multiselect(
-          "교직필수 이수 과목",
-          options=teaching_required_df["라벨"].tolist(),
-          key="teaching_required_ms",
-      )
-      req_rows = teaching_required_df[teaching_required_df["라벨"].isin(selected_teach_required)]
-      teaching_required_credit = int(req_rows["학점"].sum())
-      st.metric("교직필수 자동 합계", f"{teaching_required_credit}점")
+      render_course_checklist(teaching_required_df, "교직필수")
 
   with tab_교직이론:
-    st.caption("교육학개론 ~ 교육평가 8과목 중 6과목 이상 선택해야 합니다.")
+    t_status = "✅ 충족" if theory_cnt >= 6 else f"❌ {6 - theory_cnt}과목 더 필요"
+    st.caption(
+        f"8과목 중 **6과목 이상** 이수 필요 — "
+        f"현재 **{theory_cnt}/6과목** {t_status} ({교직이론_점}점)"
+    )
     if teaching_theory_df.empty:
       st.info("교직이론 과목 데이터가 없습니다.")
-      teaching_theory_credit = 0
-      theory_count = 0
     else:
-      selected_theory = st.multiselect(
-          "교직이론 이수 과목",
-          options=teaching_theory_df["라벨"].tolist(),
-          key="teaching_theory_ms",
-      )
-      theory_rows = teaching_theory_df[teaching_theory_df["라벨"].isin(selected_theory)]
-      teaching_theory_credit = int(theory_rows["학점"].sum())
-      theory_count = len(selected_theory)
-      status = "✅ 충족" if theory_count >= 6 else f"❌ {6 - theory_count}과목 부족"
-      st.metric("교직이론 선택 과목 수", f"{theory_count}/6", status)
-      st.metric("교직이론 학점 합계", f"{teaching_theory_credit}점")
-
-    st.session_state.inp_교직 = teaching_required_credit + teaching_theory_credit
+      render_course_checklist(teaching_theory_df, "교직이론")
 
   with tab_전선:
-    st.caption("전필/교직필수/교직이론 외 모든 전공과목은 전공선택(전선)으로 계산합니다.")
+    req = GRADUATION_REQUIREMENTS[선택_학번]
+    전선_목표 = req["전선"]   # 48 (전선 27 + 심화 21)
+    st.caption(
+        f"전공선택·심화(전선 27점 + 심화 21점 = 48점) — 현재 **{전선_점}점** 선택됨"
+    )
     if elective_df.empty:
       st.info("전공선택 과목 데이터가 없습니다.")
     else:
-      선택_전선 = st.multiselect(
-          "전공선택 이수 과목",
-          options=elective_df["라벨"].tolist(),
-          default=st.session_state.selected_elective_courses,
-          key="elective_courses_ms",
-      )
-      st.session_state.selected_elective_courses = 선택_전선
+      render_course_checklist(elective_df, "전선")
 
-      selected_rows = elective_df[elective_df["라벨"].isin(선택_전선)]
-      st.session_state.inp_전선 = int(selected_rows["학점"].sum())
-      st.session_state.inp_심화 = 0
+    st.divider()
+    st.session_state.inp_일선 = st.number_input(
+        "일선(일반선택) 학점 직접 입력",
+        min_value=0, max_value=200,
+        value=st.session_state.inp_일선,
+        step=1, key="ilsun_input",
+        help="교양 초과분은 자동으로 일선에 더해집니다. 이 칸은 그 외의 일선 학점을 입력하세요.",
+    )
 
-      c1, c2 = st.columns(2)
-      c1.metric("전선 자동 합계", f"{st.session_state.inp_전선}점")
-      c2.metric("일선 학점", f"{st.session_state.inp_일선}점")
-
-      st.session_state.inp_일선 = st.number_input(
-          "일선 학점 (직접 입력)",
-          min_value=0,
-          max_value=200,
-          value=st.session_state.inp_일선,
-          step=1,
-          key="ilsun_input",
-      )
+  with tab_기초교양:
+    st.caption(
+        f"1학년 필수 이수 교양 과목 — 현재 **{기초교양_점}점** 선택됨 "
+        f"(교필: 일반생물1/2, 교선필수: 일반물리·화학·지구과학 각 1/2)"
+    )
+    render_course_checklist(basic_liberal_df, "기초교양")
 
   with tab_교양:
     st.caption("이수한 교양 과목을 분야별로 등록하세요. (분야당 1과목 이상 필요)")
@@ -1128,31 +1340,45 @@ def page_credit_calculator() -> None:
       render_teaching_license_input(항목)
       st.divider()
 
-  user_credits = get_user_credits()
-  유효_학점 = calc_effective_credits(선택_학번, user_credits)
-
   with tab_결과:
+    user_credits = get_user_credits()
+    유효_학점 = calc_effective_credits(선택_학번, user_credits)
+
+    req_r = GRADUATION_REQUIREMENTS[선택_학번]
     st.info(
-        f"**{선택_학번}** | 교양 {user_credits['교양']}점 | "
+        f"**{선택_학번}** | 교양(기초포함) {user_credits['교양']}점 | "
         f"인정 총학점 **{유효_학점['총학점_인정']}점** / "
-        f"기준 {GRADUATION_REQUIREMENTS[선택_학번]['총학점']}점"
+        f"기준 {req_r['총학점']}점"
     )
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("교직", f"{user_credits['교직']}점")
-    c2.metric("생물전공", f"{user_credits['생물전공']}점")
-    c3.metric("전선", f"{user_credits['전선']}점")
-    c4.metric("일선", f"{user_credits['일선']}점")
+    c2.metric("생물전공(전필)", f"{user_credits['생물전공']}점")
+    c3.metric("전공선택·심화", f"{user_credits['전선']}점")
+    c4.metric("교양(기초포함)", f"{user_credits['교양']}점")
+    c5.metric("일선(자동포함)", f"{유효_학점['일선_유효']}점")
 
-    theory_count = len(st.session_state.get("teaching_theory_ms", []))
-    theory_status = "✅ 충족" if theory_count >= 6 else "❌ 미충족"
-    st.caption(f"교직이론 8과목 중 6과목 이수 여부: **{theory_status}** ({theory_count}과목 선택)")
+    t_status_r = "✅ 충족" if theory_cnt >= 6 else "❌ 미충족"
+    st.caption(f"교직이론 8과목 중 6과목 이수: **{t_status_r}** ({theory_cnt}과목 선택)")
+
+    if 유효_학점["일선_교양대체"] > 0:
+      st.caption(
+          f"💡 교양 초과 {유효_학점['일선_교양대체']}점이 일선으로 자동 인정됩니다."
+      )
 
     if st.button("📋 졸업 요건 종합 분석 보기", type="primary", use_container_width=True):
       st.markdown(analyze_graduation(
           선택_학번, user_credits,
           st.session_state.교양_과목, st.session_state.교직_이수,
       ))
+
+    st.divider()
+    if st.session_state.student_id:
+      if st.button("💾 내 입력 내용 저장", use_container_width=True, key="save_in_result_tab"):
+        save_user_data(st.session_state.student_id, get_current_user_save_data())
+        st.success(f"✅ **{st.session_state.student_id}** 데이터가 저장되었습니다!")
+    else:
+      st.info("💡 왼쪽 사이드바에서 학번을 입력하면 입력 내용을 저장·불러올 수 있습니다.")
 
 
 # =============================================================================
@@ -1185,11 +1411,56 @@ with st.sidebar:
     st.session_state.active_menu = menu
 
   st.divider()
+
+  # ── 내 데이터 (학번 코드 저장) ──────────────────────────────────────
+  st.subheader("👤 내 데이터 저장")
+  st.caption("학번을 입력하면 졸업요건 입력 내용이 저장됩니다.\n링크를 닫아도 다음에 같은 학번으로 불러올 수 있습니다.")
+
+  input_id = st.text_input(
+    "학번 입력",
+    placeholder="예: 2024001",
+    value=st.session_state.student_id,
+    label_visibility="collapsed",
+    key="sidebar_student_id_input",
+  )
+
+  col_load, col_save = st.columns(2)
+  with col_load:
+    if st.button("📂 불러오기", use_container_width=True, key="btn_load_user"):
+      sid = input_id.strip()
+      if sid:
+        st.session_state.student_id = sid
+        saved = load_user_data(sid)
+        if saved:
+          apply_user_data(saved)
+          st.session_state.user_logged_in = True
+          st.success("데이터를 불러왔습니다!")
+          st.rerun()
+        else:
+          st.session_state.user_logged_in = True
+          st.info("저장된 데이터가 없습니다.\n졸업요건 확인 후 저장해 주세요.")
+      else:
+        st.warning("학번을 입력해 주세요.")
+  with col_save:
+    if st.button("💾 저장하기", use_container_width=True, type="primary", key="btn_save_user"):
+      sid = input_id.strip() or st.session_state.student_id
+      if sid:
+        st.session_state.student_id = sid
+        st.session_state.user_logged_in = True
+        save_user_data(sid, get_current_user_save_data())
+        st.success("저장 완료!")
+      else:
+        st.warning("먼저 학번을 입력해 주세요.")
+
+  if st.session_state.user_logged_in and st.session_state.student_id:
+    st.caption(f"✅ **{st.session_state.student_id}** 로 연결됨")
+
+  st.divider()
   st.caption(
       "데이터:\n"
       "· major_course_catalog.json\n"
       "· liberal_arts_catalog.json\n"
-      "· data/ (후기·졸업팁)"
+      "· data/ (후기·졸업팁·개인저장)"
   )
 
 if st.session_state.show_home:
