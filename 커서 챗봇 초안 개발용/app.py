@@ -295,6 +295,10 @@ def init_session_state() -> None:
     st.session_state.course_checks = {}
   if "inp_기초교양" not in st.session_state:
     st.session_state.inp_기초교양 = 0
+  if "_user_data_auto_loaded" not in st.session_state:
+    st.session_state._user_data_auto_loaded = False
+  if "sidebar_student_id_input" not in st.session_state:
+    st.session_state.sidebar_student_id_input = st.session_state.get("student_id", "")
 
 
 init_session_state()
@@ -340,7 +344,7 @@ def get_current_user_save_data() -> dict:
   """현재 세션 상태에서 저장할 졸업요건 데이터를 추출합니다."""
   return {
     "선택_학번": st.session_state.get("선택_학번", STUDENT_YEARS[0]),
-    "course_checks": st.session_state.get("course_checks", {}),
+    "course_checks": collect_course_checks_from_session(),
     "교양_과목": st.session_state.get("교양_과목", {}),
     "교직_이수": st.session_state.get("교직_이수", {}),
     "inp_일선": st.session_state.get("inp_일선", 0),
@@ -360,15 +364,76 @@ def get_course_prefix(name: str) -> str:
   return "전선"
 
 
+CHECKLIST_PREFIXES = ["교직이론", "교직필수", "기초교양", "전필", "전선"]
+
+# 저장 데이터 과목명 변경 시 이전 이름 → 새 이름으로 매핑
+COURSE_NAME_ALIASES = {
+    "분자유전학": "분자생물학",
+    "물탐실1": "물리학탐구실험1",
+    "물탐실2": "물리학탐구실험2",
+}
+
+
+def checkbox_widget_key(name: str) -> str:
+  """과목명에 해당하는 체크박스 위젯 키를 반환합니다."""
+  return f"chk_{get_course_prefix(name)}_{name}"
+
+
+def get_all_trackable_course_names() -> list[str]:
+  """체크리스트에 표시되는 모든 과목명 목록."""
+  names: set[str] = set(
+      MAJOR_REQUIRED_COURSES + TEACHING_REQUIRED_COURSES
+      + TEACHING_THEORY_POOL + BASIC_LIBERAL_COURSE_NAMES
+  )
+  if not MAJOR_COURSE_CATALOG.empty:
+    names.update(MAJOR_COURSE_CATALOG["과목명"].astype(str).tolist())
+  return sorted(names)
+
+
+def normalize_saved_course_checks(raw: dict) -> dict[str, bool]:
+  """저장된 course_checks를 정규화합니다 (과목명 변경·구형 데이터 호환)."""
+  normalized: dict[str, bool] = {}
+  for name, val in raw.items():
+    canonical = COURSE_NAME_ALIASES.get(name, name)
+    if val:
+      normalized[canonical] = True
+  return normalized
+
+
+def collect_course_checks_from_session() -> dict[str, bool]:
+  """저장용: chk_* 위젯 키 + course_checks를 합쳐 최신 체크 상태를 반환합니다."""
+  checks: dict[str, bool] = {}
+  checks.update(st.session_state.get("course_checks", {}))
+
+  for key, val in st.session_state.items():
+    if not isinstance(key, str) or not key.startswith("chk_"):
+      continue
+    body = key[4:]
+    for prefix in CHECKLIST_PREFIXES:
+      prefix_token = f"{prefix}_"
+      if body.startswith(prefix_token):
+        name = body[len(prefix_token):]
+        checks[name] = bool(val)
+        break
+
+  return {name: checked for name, checked in checks.items() if checked}
+
+
+def apply_course_checks_to_widgets(checks: dict[str, bool]) -> None:
+  """course_checks를 세션·체크박스 위젯 키에 반영합니다."""
+  st.session_state.course_checks = dict(checks)
+  for name in get_all_trackable_course_names():
+    st.session_state[checkbox_widget_key(name)] = bool(checks.get(name, False))
+
+
 def get_widget_checked_credits(courses_df: pd.DataFrame, prefix: str) -> int:
-  """Streamlit 위젯 키에서 직접 체크 상태를 읽어 학점 합계를 반환합니다.
-  (course_checks 딕셔너리 대신 위젯 키를 사용하므로 렌더링 순서 버그가 없습니다.)"""
+  """Streamlit 위젯 키에서 직접 체크 상태를 읽어 학점 합계를 반환합니다."""
   if courses_df.empty:
     return 0
   total = 0
   for _, row in courses_df.iterrows():
     name = str(row["과목명"])
-    if st.session_state.get(f"chk_{prefix}_{name}", False):
+    if st.session_state.get(checkbox_widget_key(name), False):
       total += int(row.get("학점", 0))
   return total
 
@@ -378,11 +443,8 @@ def apply_user_data(data: dict) -> None:
   if "선택_학번" in data and data["선택_학번"] in STUDENT_YEARS:
     st.session_state.선택_학번 = data["선택_학번"]
   if "course_checks" in data:
-    st.session_state.course_checks = data["course_checks"]
-    # 위젯 키도 함께 설정해야 체크박스가 올바른 상태로 렌더링됩니다
-    for name, val in data["course_checks"].items():
-      prefix = get_course_prefix(name)
-      st.session_state[f"chk_{prefix}_{name}"] = bool(val)
+    checks = normalize_saved_course_checks(data["course_checks"])
+    apply_course_checks_to_widgets(checks)
   if "교양_과목" in data:
     merged = {area: [] for area in ALL_LIBERAL_ARTS_AREAS}
     merged.update(data["교양_과목"])
@@ -393,6 +455,36 @@ def apply_user_data(data: dict) -> None:
     st.session_state.교직_이수 = merged
   if "inp_일선" in data:
     st.session_state.inp_일선 = data["inp_일선"]
+    st.session_state.ilsun_input = data["inp_일선"]
+
+
+def remember_student_id(student_id: str) -> None:
+  """학번을 세션·URL·사이드바 입력란에 동기화합니다 (재방문 시 자동 불러오기용)."""
+  sid = student_id.strip()
+  if not sid:
+    return
+  st.session_state.student_id = sid
+  st.session_state.sidebar_student_id_input = sid
+  st.query_params["code"] = sid
+
+
+def try_auto_load_user_data() -> None:
+  """URL 또는 저장된 학번으로 이전 입력 데이터를 자동 복원합니다."""
+  if st.session_state.get("_user_data_auto_loaded"):
+    return
+
+  url_code = st.query_params.get("code", "").strip()
+  if url_code:
+    remember_student_id(url_code)
+
+  sid = st.session_state.get("student_id", "").strip()
+  if sid:
+    saved = load_user_data(sid)
+    if saved:
+      apply_user_data(saved)
+      st.session_state.user_logged_in = True
+
+  st.session_state._user_data_auto_loaded = True
 
 
 def course_review_key(과목명: str, 과목코드: str = "") -> str:
@@ -834,12 +926,12 @@ def render_course_checklist(courses_df: pd.DataFrame, prefix: str) -> None:
     semester_hint = f"{yr}-{sem}학기" if yr and sem else ""
 
     with cols[i % 3]:
+      widget_key = checkbox_widget_key(name)
       checked = st.checkbox(
           f"{name} ({credit}점)",
-          key=f"chk_{prefix}_{name}",   # Streamlit이 위젯 상태 관리
+          key=widget_key,
           help=semester_hint or None,
       )
-      # course_checks 딕셔너리도 동기화 (저장 기능에 사용)
       st.session_state.course_checks[name] = checked
 
 
@@ -1252,7 +1344,7 @@ def page_credit_calculator() -> None:
   # 교직이론 과목 수 (위젯 키 직접 읽기)
   theory_cnt = sum(
       1 for n in TEACHING_THEORY_POOL
-      if st.session_state.get(f"chk_교직이론_{n}", False)
+      if st.session_state.get(checkbox_widget_key(n), False)
   )
 
   # 세션 상태 동기화 (챗봇 분석에 사용)
@@ -1378,6 +1470,7 @@ def page_credit_calculator() -> None:
     st.divider()
     if st.session_state.student_id:
       if st.button("💾 내 입력 내용 저장", use_container_width=True, key="save_in_result_tab"):
+        remember_student_id(st.session_state.student_id)
         save_user_data(st.session_state.student_id, get_current_user_save_data())
         st.success(f"✅ **{st.session_state.student_id}** 데이터가 저장되었습니다!")
     else:
@@ -1387,6 +1480,9 @@ def page_credit_calculator() -> None:
 # =============================================================================
 # 메인: 사이드바 메뉴 + 페이지 라우팅
 # =============================================================================
+
+# 페이지·체크박스 렌더링 전에 저장 데이터 자동 복원
+try_auto_load_user_data()
 
 with st.sidebar:
   st.header("🎓 생물교육과")
@@ -1417,12 +1513,14 @@ with st.sidebar:
 
   # ── 내 데이터 (학번 코드 저장) ──────────────────────────────────────
   st.subheader("👤 내 데이터 저장")
-  st.caption("학번을 입력하면 졸업요건 입력 내용이 저장됩니다.\n링크를 닫아도 다음에 같은 학번으로 불러올 수 있습니다.")
+  st.caption(
+      "학번을 입력하고 **저장**하면 다음 방문 시 체크 표시까지 자동 복원됩니다.\n"
+      "저장 후 URL에 학번이 붙으니 북마크해 두세요."
+  )
 
-  input_id = st.text_input(
+  st.text_input(
     "학번 입력",
     placeholder="예: 2024001",
-    value=st.session_state.student_id,
     label_visibility="collapsed",
     key="sidebar_student_id_input",
   )
@@ -1430,13 +1528,14 @@ with st.sidebar:
   col_load, col_save = st.columns(2)
   with col_load:
     if st.button("📂 불러오기", use_container_width=True, key="btn_load_user"):
-      sid = input_id.strip()
+      sid = st.session_state.sidebar_student_id_input.strip()
       if sid:
-        st.session_state.student_id = sid
+        remember_student_id(sid)
         saved = load_user_data(sid)
         if saved:
           apply_user_data(saved)
           st.session_state.user_logged_in = True
+          st.session_state._user_data_auto_loaded = True
           st.success("데이터를 불러왔습니다!")
           st.rerun()
         else:
@@ -1446,9 +1545,9 @@ with st.sidebar:
         st.warning("학번을 입력해 주세요.")
   with col_save:
     if st.button("💾 저장하기", use_container_width=True, type="primary", key="btn_save_user"):
-      sid = input_id.strip() or st.session_state.student_id
+      sid = st.session_state.sidebar_student_id_input.strip() or st.session_state.student_id
       if sid:
-        st.session_state.student_id = sid
+        remember_student_id(sid)
         st.session_state.user_logged_in = True
         save_user_data(sid, get_current_user_save_data())
         st.success("저장 완료!")
