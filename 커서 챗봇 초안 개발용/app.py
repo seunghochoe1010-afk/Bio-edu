@@ -297,8 +297,7 @@ def init_session_state() -> None:
     st.session_state.inp_기초교양 = 0
   if "_user_data_auto_loaded" not in st.session_state:
     st.session_state._user_data_auto_loaded = False
-  if "sidebar_student_id_input" not in st.session_state:
-    st.session_state.sidebar_student_id_input = st.session_state.get("student_id", "")
+  # sidebar_student_id_input 은 Streamlit 위젯 키이므로 세션에서 직접 초기화하지 않음
 
 
 init_session_state()
@@ -459,12 +458,12 @@ def apply_user_data(data: dict) -> None:
 
 
 def remember_student_id(student_id: str) -> None:
-  """학번을 세션·URL·사이드바 입력란에 동기화합니다 (재방문 시 자동 불러오기용)."""
+  """학번을 세션과 URL에 저장합니다 (재방문 시 자동 불러오기용)."""
   sid = student_id.strip()
   if not sid:
     return
   st.session_state.student_id = sid
-  st.session_state.sidebar_student_id_input = sid
+  # sidebar_student_id_input 은 위젯 키이므로 직접 설정 불가 — 건너뜀
   st.query_params["code"] = sid
 
 
@@ -1518,9 +1517,12 @@ with st.sidebar:
       "저장 후 URL에 학번이 붙으니 북마크해 두세요."
   )
 
-  st.text_input(
+  # 저장된 학번을 입력란 기본값으로 표시 (위젯 키와 분리된 별도 변수)
+  _default_id = st.session_state.get("student_id", "")
+  _entered_id = st.text_input(
     "학번 입력",
     placeholder="예: 2024001",
+    value=_default_id,
     label_visibility="collapsed",
     key="sidebar_student_id_input",
   )
@@ -1528,7 +1530,7 @@ with st.sidebar:
   col_load, col_save = st.columns(2)
   with col_load:
     if st.button("📂 불러오기", use_container_width=True, key="btn_load_user"):
-      sid = st.session_state.sidebar_student_id_input.strip()
+      sid = _entered_id.strip()
       if sid:
         remember_student_id(sid)
         saved = load_user_data(sid)
@@ -1545,7 +1547,7 @@ with st.sidebar:
         st.warning("학번을 입력해 주세요.")
   with col_save:
     if st.button("💾 저장하기", use_container_width=True, type="primary", key="btn_save_user"):
-      sid = st.session_state.sidebar_student_id_input.strip() or st.session_state.student_id
+      sid = _entered_id.strip() or st.session_state.student_id
       if sid:
         remember_student_id(sid)
         st.session_state.user_logged_in = True
