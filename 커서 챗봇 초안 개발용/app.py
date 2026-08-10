@@ -2,10 +2,12 @@
 # 생물교육과 교육과정 안내 및 졸업 요건 확인 챗봇 (24~26학번)
 # =============================================================================
 
+import base64
 import json
 import uuid
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 import streamlit as st
 import pandas as pd
@@ -16,6 +18,7 @@ APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 LIBERAL_REVIEWS_PATH = DATA_DIR / "liberal_arts_reviews.json"
 GRADUATION_TIPS_PATH = DATA_DIR / "graduation_tips.json"
+QNA_BOARD_PATH = DATA_DIR / "qna_board.json"
 # 학번별 개인 데이터를 저장하는 폴더
 USER_DATA_DIR = DATA_DIR / "users"
 
@@ -26,6 +29,7 @@ st.set_page_config(
     page_title="생물교육과 교육과정 및 졸업요건",
     page_icon="🧬",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
 # -----------------------------------------------------------------------------
@@ -50,6 +54,12 @@ html, body, [class*="css"], .stApp, button, input, textarea {
 /* ── 메인 배경: 밝고 깨끗하게 ─────────────────────────────────── */
 .stApp {
   background: #f7faf8;
+}
+
+/* ── 사이드바 완전 숨김 (상단 내비게이션으로 대체) ─────────────── */
+[data-testid="stSidebar"],
+[data-testid="collapsedControl"] {
+  display: none !important;
 }
 
 /* ── 제목 ─────────────────────────────────────────────────────── */
@@ -403,6 +413,30 @@ FAQ_LIST = [
     "선택한 학기 개설 과목 알려줘",
 ]
 
+# -----------------------------------------------------------------------------
+# ★ 직접 학습시키는 FAQ — 질문 게시판에서 자주 나온 질문을 여기에 추가하세요!
+#   - "질문": "답변" 형식으로 한 줄씩 추가하면 홈 챗봇에 버튼이 생기고,
+#     클릭하면 여기 적은 답변이 그대로 나옵니다. (답변은 마크다운 사용 가능)
+#   - 예시 3개를 넣어 두었으니 참고해서 수정·추가하시면 됩니다.
+# -----------------------------------------------------------------------------
+CUSTOM_FAQ = {
+    "교직이론은 몇 과목 들어야 하나요?": (
+        "교직이론은 **교육학개론, 교육철학및교육사, 교육심리, 교육사회, 교육과정, "
+        "교육행정및교육경영, 교육방법및교육공학, 교육평가** 8과목 중 "
+        "**6과목 이상**만 이수하면 됩니다.\n\n"
+        "자세한 현황은 **졸업요건 확인 → 교직이론(8→6)** 탭에서 체크해 보세요."
+    ),
+    "교양 학점은 몇 점까지 인정되나요?": (
+        "교양은 **최소 32학점**을 채워야 하고, 총 졸업학점에는 **최대 45학점**까지 인정됩니다.\n\n"
+        "32학점을 초과한 교양 학점은 **최대 12학점까지 일반선택(일선)** 으로 자동 인정돼요."
+    ),
+    "성인지교육은 언제까지 들어야 하나요?": (
+        "성인지교육은 **1년에 1회씩, 총 4회**를 이수해야 합니다.\n\n"
+        "1년에 한 번만 인정되기 때문에 **1학년 때부터 매년 챙기는 것**이 중요해요! "
+        "교직적성검사(2회)와 응급처치 및 심폐소생술(2회)도 같은 방식입니다."
+    ),
+}
+
 # 전필/교직필수/교직이론(8과목 중 6과목) 규칙
 MAJOR_REQUIRED_COURSES = [
     "세포학",
@@ -488,6 +522,7 @@ MENU_OPTIONS = [
     "👨‍🏫 교수님별 강의 조회",
     "📚 교양 과목 안내",
     "💡 졸업팁",
+    "❓ 질문 게시판",
     "🧮 졸업요건 확인",
 ]
 
@@ -548,6 +583,8 @@ def init_session_state() -> None:
   # 과목별 이수 여부 체크 상태 {과목명: True/False}
   if "course_checks" not in st.session_state:
     st.session_state.course_checks = {}
+  if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
   if "inp_기초교양" not in st.session_state:
     st.session_state.inp_기초교양 = 0
   if "_user_data_auto_loaded" not in st.session_state:
@@ -570,11 +607,138 @@ def load_json_data(path: Path, default):
   return default
 
 
+# =============================================================================
+# GitHub 영구 저장소 — 게시판·후기·개인 데이터를 데이터 전용 저장소에 백업
+#   Streamlit Cloud는 재배포 시 서버 파일이 초기화되므로,
+#   별도 GitHub 저장소(DATA_REPO)에 백업해 두면 데이터가 영구 보존됩니다.
+#   Secrets에 GITHUB_TOKEN, DATA_REPO 를 등록하면 자동으로 작동합니다.
+# =============================================================================
+
+def _github_secrets() -> tuple[str, str]:
+  """Secrets에서 GitHub 토큰과 데이터 저장소 이름을 읽습니다."""
+  try:
+    token = str(st.secrets.get("GITHUB_TOKEN", "")).strip()
+    repo = str(st.secrets.get("DATA_REPO", "")).strip()
+  except Exception:
+    return "", ""
+  return token, repo
+
+
+def github_storage_enabled() -> bool:
+  token, repo = _github_secrets()
+  return bool(token and repo)
+
+
+def _github_headers(token: str) -> dict:
+  return {
+      "Authorization": f"Bearer {token}",
+      "Accept": "application/vnd.github+json",
+  }
+
+
+def _github_api_url(repo: str, repo_path: str) -> str:
+  return f"https://api.github.com/repos/{repo}/contents/{quote(repo_path)}"
+
+
+def github_pull_file(repo_path: str) -> str | None:
+  """데이터 저장소에서 파일 내용을 가져옵니다. 없으면 None."""
+  token, repo = _github_secrets()
+  if not (token and repo):
+    return None
+  import requests
+  try:
+    res = requests.get(
+        _github_api_url(repo, repo_path),
+        headers=_github_headers(token), timeout=15,
+    )
+    if res.status_code != 200:
+      return None
+    return base64.b64decode(res.json()["content"]).decode("utf-8")
+  except Exception:
+    return None
+
+
+def github_push_file(repo_path: str, content: str) -> None:
+  """데이터 저장소에 파일을 저장(생성/갱신)합니다. 실패해도 앱은 계속 동작합니다."""
+  token, repo = _github_secrets()
+  if not (token and repo):
+    return
+  import requests
+  try:
+    url = _github_api_url(repo, repo_path)
+    headers = _github_headers(token)
+    sha = None
+    res = requests.get(url, headers=headers, timeout=15)
+    if res.status_code == 200:
+      sha = res.json().get("sha")
+    payload = {
+        "message": f"backup: {repo_path}",
+        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+    }
+    if sha:
+      payload["sha"] = sha
+    requests.put(url, headers=headers, json=payload, timeout=15)
+  except Exception:
+    pass
+
+
+def _github_list_dir(repo_path: str) -> list:
+  """데이터 저장소의 폴더 안 파일 목록을 반환합니다."""
+  token, repo = _github_secrets()
+  if not (token and repo):
+    return []
+  import requests
+  try:
+    res = requests.get(
+        _github_api_url(repo, repo_path),
+        headers=_github_headers(token), timeout=15,
+    )
+    if res.status_code != 200:
+      return []
+    items = res.json()
+    return items if isinstance(items, list) else []
+  except Exception:
+    return []
+
+
+@st.cache_resource
+def sync_data_from_github() -> bool:
+  """앱이 시작될 때 GitHub 백업 데이터를 서버로 복원합니다 (프로세스당 1회)."""
+  if not github_storage_enabled():
+    return False
+  DATA_DIR.mkdir(parents=True, exist_ok=True)
+  USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+  # data/ 폴더의 JSON 복원 (게시판·졸업팁·교양후기)
+  for item in _github_list_dir("data"):
+    if item.get("type") == "file" and item.get("name", "").endswith(".json"):
+      content = github_pull_file(f"data/{item['name']}")
+      if content is not None:
+        (DATA_DIR / item["name"]).write_text(content, encoding="utf-8")
+  # data/users/ 폴더의 학번별 개인 데이터 복원
+  for item in _github_list_dir("data/users"):
+    if item.get("type") == "file" and item.get("name", "").endswith(".json"):
+      content = github_pull_file(f"data/users/{item['name']}")
+      if content is not None:
+        (USER_DATA_DIR / item["name"]).write_text(content, encoding="utf-8")
+  return True
+
+
 def save_json_data(path: Path, data) -> None:
-  """JSON 파일로 저장합니다."""
+  """JSON 파일로 저장하고, 설정된 경우 GitHub 저장소에도 백업합니다."""
   path.parent.mkdir(parents=True, exist_ok=True)
+  content = json.dumps(data, ensure_ascii=False, indent=2)
   with open(path, "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write(content)
+  # GitHub 백업 (Secrets 미설정 시 아무 일도 안 함)
+  try:
+    repo_path = path.relative_to(APP_DIR).as_posix()   # 예: data/qna_board.json
+    github_push_file(repo_path, content)
+  except Exception:
+    pass
+
+
+# 앱 시작 시 백업 데이터 복원
+sync_data_from_github()
 
 
 # =============================================================================
@@ -786,6 +950,70 @@ def add_graduation_tip(제목: str, 작성자: str, 학번: str, 내용: str) ->
       "작성일": datetime.now().strftime("%Y-%m-%d %H:%M"),
   })
   save_json_data(GRADUATION_TIPS_PATH, tips)
+
+
+# =============================================================================
+# 질문 게시판 (Q&A) — 학생 질문 + 선배·운영자 답변
+# =============================================================================
+
+def get_qna_posts() -> list:
+  return load_json_data(QNA_BOARD_PATH, [])
+
+
+def add_qna_post(제목: str, 작성자: str, 학번: str, 내용: str) -> None:
+  posts = get_qna_posts()
+  posts.insert(0, {
+      "id": str(uuid.uuid4())[:8],
+      "제목": 제목.strip(),
+      "작성자": 작성자.strip() or "익명",
+      "학번": 학번.strip(),
+      "내용": 내용.strip(),
+      "작성일": datetime.now().strftime("%Y-%m-%d %H:%M"),
+      "답변": [],
+  })
+  save_json_data(QNA_BOARD_PATH, posts)
+
+
+def add_qna_reply(post_id: str, 작성자: str, 내용: str) -> bool:
+  """질문 글에 답변을 추가합니다. 성공하면 True."""
+  posts = get_qna_posts()
+  for post in posts:
+    if post["id"] == post_id:
+      post.setdefault("답변", []).append({
+          "작성자": 작성자.strip() or "익명",
+          "내용": 내용.strip(),
+          "작성일": datetime.now().strftime("%Y-%m-%d %H:%M"),
+      })
+      save_json_data(QNA_BOARD_PATH, posts)
+      return True
+  return False
+
+
+def delete_qna_post(post_id: str) -> None:
+  """질문 글을 삭제합니다 (운영자 전용)."""
+  posts = [p for p in get_qna_posts() if p["id"] != post_id]
+  save_json_data(QNA_BOARD_PATH, posts)
+
+
+def delete_qna_reply(post_id: str, reply_index: int) -> None:
+  """질문 글의 특정 답변을 삭제합니다 (운영자 전용)."""
+  posts = get_qna_posts()
+  for post in posts:
+    if post["id"] == post_id:
+      replies = post.get("답변", [])
+      if 0 <= reply_index < len(replies):
+        replies.pop(reply_index)
+        save_json_data(QNA_BOARD_PATH, posts)
+      return
+
+
+def get_admin_password() -> str:
+  """운영자 비밀번호. Secrets의 ADMIN_PASSWORD가 우선, 없으면 기본값."""
+  try:
+    pw = str(st.secrets.get("ADMIN_PASSWORD", "")).strip()
+  except Exception:
+    pw = ""
+  return pw or "bio2026"
 
 
 # =============================================================================
@@ -1039,6 +1267,81 @@ def add_message(role: str, content: str) -> None:
   st.session_state.messages.append({"role": role, "content": content})
 
 
+# =============================================================================
+# AI 챗봇 (Gemini API) — 키가 없으면 기존 키워드 챗봇으로 자동 전환
+# =============================================================================
+
+def get_gemini_api_key() -> str:
+  """Streamlit Secrets에 등록된 Gemini API 키를 반환합니다 (없으면 빈 문자열)."""
+  try:
+    return str(st.secrets.get("GEMINI_API_KEY", "")).strip()
+  except Exception:
+    return ""
+
+
+def generate_ai_response(user_input: str, 학번: str, user_credits: dict) -> str | None:
+  """Gemini AI로 자연스러운 답변을 생성합니다. 실패하면 None을 반환해
+  기존 키워드 챗봇으로 넘어갑니다."""
+  api_key = get_gemini_api_key()
+  if not api_key:
+    return None
+
+  import requests
+
+  기준 = GRADUATION_REQUIREMENTS.get(학번, {})
+  system_context = (
+      "너는 전남대학교 사범대학 생물교육과(24~26학번) 학생을 돕는 친절한 안내 챗봇이야. "
+      "존댓말을 쓰고, 답변은 간결하게 마크다운으로 정리해 줘. "
+      "학과 데이터에 없는 내용은 모른다고 솔직하게 말해 줘.\n\n"
+      f"[졸업 요건 기준 ({학번})]\n{json.dumps(기준, ensure_ascii=False)}\n\n"
+      f"[학생의 현재 이수 학점]\n{json.dumps(user_credits, ensure_ascii=False)}\n\n"
+      f"[전공필수 8과목]\n{', '.join(MAJOR_REQUIRED_COURSES)}\n\n"
+      f"[교직필수 과목]\n{', '.join(TEACHING_REQUIRED_COURSES)}\n\n"
+      f"[교직이론 과목 — 8과목 중 6과목 이상 이수]\n{', '.join(TEACHING_THEORY_POOL)}\n\n"
+      "[교양 구조] 역량교양(창의·감성·공동체), 기초교양(기초SW), "
+      "균형교양(인간과사회·표현과소통·진로와창업) — 각 분야 1과목 이상 필수. "
+      "기초교양필수: 일반생물1·2(교필), 일반물리·일반화학·일반지구과학 1·2(1학년 필수). "
+      "교양은 최소 32점, 총학점에는 45점까지 인정, 32점 초과분은 12점까지 일선 대체.\n\n"
+      "[교직 자격] 교직적성검사 2회, 응급처치및심폐소생술 2회, 성인지교육 4회 (모두 1년 1회 제한)\n\n"
+      "[앱 메뉴 안내] 졸업요건 확인(과목 체크로 학점 자동 계산), 교수님별 강의 조회, "
+      "교양 과목 안내(별점·후기), 졸업팁 게시판, 홈 화면 '내 데이터 저장'(학번으로 저장·복원)"
+  )
+
+  # 최근 대화 6개를 맥락으로 포함
+  contents = []
+  for m in st.session_state.messages[-6:]:
+    role = "user" if m["role"] == "user" else "model"
+    contents.append({"role": role, "parts": [{"text": m["content"]}]})
+  contents.append({"role": "user", "parts": [{"text": user_input}]})
+
+  url = (
+      "https://generativelanguage.googleapis.com/v1beta/models/"
+      "gemini-2.0-flash:generateContent?key=" + api_key
+  )
+  payload = {
+      "system_instruction": {"parts": [{"text": system_context}]},
+      "contents": contents,
+  }
+  try:
+    res = requests.post(url, json=payload, timeout=30)
+    res.raise_for_status()
+    return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+  except Exception:
+    return None   # 실패 시 키워드 챗봇으로 대체
+
+
+def get_chat_reply(question: str, 학번: str, user_credits: dict) -> str:
+  """AI 답변을 먼저 시도하고, 불가능하면 키워드 기반 답변을 반환합니다."""
+  ai_reply = generate_ai_response(question, 학번, user_credits)
+  if ai_reply:
+    return ai_reply
+  return generate_bot_response(
+      question, 학번, user_credits,
+      st.session_state.교양_과목, st.session_state.교직_이수,
+      st.session_state.조회_학년, st.session_state.조회_학기,
+  )
+
+
 def get_user_credits() -> dict:
   """학점 계산 메뉴에 입력한 값을 챗봇에서도 사용할 수 있게 반환합니다.
   교양 = 역량/균형/기초SW 교양 + 기초교양필수(일반생물/물리/화학/지구과학) 합계."""
@@ -1061,23 +1364,32 @@ def render_chatbot() -> None:
   학번 = st.session_state.선택_학번
 
   st.subheader("💬 자주 묻는 질문")
+
+  # ── 학과 FAQ (CUSTOM_FAQ에 직접 등록한 질문·답변) ─────────────
+  if CUSTOM_FAQ:
+    st.caption("📌 학과 FAQ — 클릭하면 바로 답변이 나옵니다")
+    faq_questions = list(CUSTOM_FAQ.keys())
+    for row_start in range(0, len(faq_questions), 2):
+      cols = st.columns(2)
+      for col, q in zip(cols, faq_questions[row_start:row_start + 2]):
+        with col:
+          if st.button(q, key=f"cfaq_{q}", use_container_width=True):
+            add_message("user", q)
+            add_message("assistant", CUSTOM_FAQ[q])
+            st.rerun()
+
+  # ── 내 데이터 기반 질문 ───────────────────────────────────────
+  st.caption("📊 내 데이터 기반 질문 — **졸업요건 확인**에 입력한 내용을 바탕으로 답합니다")
   faq_cols = st.columns(len(FAQ_LIST))
   for i, faq_question in enumerate(FAQ_LIST):
     if faq_cols[i].button(faq_question, key=f"faq_{i}", use_container_width=True):
       st.session_state.pending_faq = faq_question
       st.rerun()
 
-  st.caption(
-      "졸업 요건·교양·교직 질문은 **졸업요건 확인** 메뉴에 입력한 데이터를 바탕으로 답합니다."
-  )
-
   if st.session_state.pending_faq:
     faq_q = st.session_state.pending_faq
-    faq_a = generate_bot_response(
-        faq_q, 학번, user_credits,
-        st.session_state.교양_과목, st.session_state.교직_이수,
-        st.session_state.조회_학년, st.session_state.조회_학기,
-    )
+    with st.spinner("답변을 준비하고 있어요..."):
+      faq_a = get_chat_reply(faq_q, 학번, user_credits)
     add_message("user", faq_q)
     add_message("assistant", faq_a)
     st.session_state.pending_faq = None
@@ -1087,12 +1399,9 @@ def render_chatbot() -> None:
       st.markdown(message["content"])
 
   if user_input := st.chat_input("질문을 입력하세요... (예: 내 졸업 요건 확인해줘)"):
+    with st.spinner("답변을 준비하고 있어요..."):
+      bot_reply = get_chat_reply(user_input, 학번, user_credits)
     add_message("user", user_input)
-    bot_reply = generate_bot_response(
-        user_input, 학번, user_credits,
-        st.session_state.교양_과목, st.session_state.교직_이수,
-        st.session_state.조회_학년, st.session_state.조회_학기,
-    )
     add_message("assistant", bot_reply)
     st.rerun()
 
@@ -1271,6 +1580,59 @@ def render_teaching_license_input(항목: str) -> None:
 # 페이지: 홈
 # =============================================================================
 
+def render_my_data_section() -> None:
+  """홈 화면: 학번으로 내 데이터 저장·불러오기."""
+  st.markdown('<div class="section-label">MY DATA · 내 데이터 저장</div>', unsafe_allow_html=True)
+  with st.container(border=True):
+    st.caption(
+        "학번을 입력하고 **저장**하면 다음 방문 시 체크 표시까지 자동 복원됩니다. "
+        "저장 후 URL에 학번이 붙으니 그 주소를 북마크해 두세요."
+    )
+    c_input, c_load, c_save = st.columns([2.4, 1, 1])
+    with c_input:
+      _entered_id = st.text_input(
+          "학번 입력",
+          placeholder="학번 입력 (예: 2024001)",
+          value=st.session_state.get("student_id", ""),
+          label_visibility="collapsed",
+          key="sidebar_student_id_input",
+      )
+    with c_load:
+      load_clicked = st.button("📂 불러오기", use_container_width=True, key="btn_load_user")
+    with c_save:
+      save_clicked = st.button("💾 저장하기", use_container_width=True, type="primary", key="btn_save_user")
+
+    if load_clicked:
+      sid = _entered_id.strip()
+      if sid:
+        remember_student_id(sid)
+        saved = load_user_data(sid)
+        if saved:
+          apply_user_data(saved)
+          st.session_state.user_logged_in = True
+          st.session_state._user_data_auto_loaded = True
+          st.success("데이터를 불러왔습니다!")
+          st.rerun()
+        else:
+          st.session_state.user_logged_in = True
+          st.info("저장된 데이터가 없습니다. 졸업요건 확인 후 저장해 주세요.")
+      else:
+        st.warning("학번을 입력해 주세요.")
+
+    if save_clicked:
+      sid = _entered_id.strip() or st.session_state.student_id
+      if sid:
+        remember_student_id(sid)
+        st.session_state.user_logged_in = True
+        save_user_data(sid, get_current_user_save_data())
+        st.success("저장 완료!")
+      else:
+        st.warning("먼저 학번을 입력해 주세요.")
+
+    if st.session_state.user_logged_in and st.session_state.student_id:
+      st.caption(f"✅ **{st.session_state.student_id}** 학번으로 연결됨")
+
+
 def page_home() -> None:
   # ── 히어로 배너 (밝은 센터형) ────────────────────────────────
   st.markdown("""
@@ -1283,7 +1645,7 @@ def page_home() -> None:
 
   # ── 빠른 메뉴 ────────────────────────────────────────────────
   st.markdown('<div class="section-label">MENU · 빠른 이동</div>', unsafe_allow_html=True)
-  col1, col2, col3, col4 = st.columns(4)
+  col1, col2, col3, col4, col5 = st.columns(5)
   with col1:
     if st.button("🧮 졸업요건 확인", use_container_width=True, type="primary"):
       st.session_state.active_menu = "🧮 졸업요건 확인"
@@ -1300,8 +1662,13 @@ def page_home() -> None:
       st.session_state.show_home = False
       st.rerun()
   with col4:
-    if st.button("💡 졸업팁 게시판", use_container_width=True):
+    if st.button("💡 졸업팁", use_container_width=True):
       st.session_state.active_menu = "💡 졸업팁"
+      st.session_state.show_home = False
+      st.rerun()
+  with col5:
+    if st.button("❓ 질문 게시판", use_container_width=True):
+      st.session_state.active_menu = "❓ 질문 게시판"
       st.session_state.show_home = False
       st.rerun()
 
@@ -1312,6 +1679,9 @@ def page_home() -> None:
     st.link_button("🏫 생물교육과 홈페이지", DEPT_HOME_URL, use_container_width=True)
   with link2:
     st.link_button("💼 아르바이트", JOB_BOARD_URL, use_container_width=True)
+
+  # ── 내 데이터 저장 ───────────────────────────────────────────
+  render_my_data_section()
 
   st.divider()
   render_chatbot()
@@ -1573,6 +1943,130 @@ def page_graduation_tips() -> None:
 
 
 # =============================================================================
+# 페이지: 질문 게시판 (Q&A)
+# =============================================================================
+
+def page_qna_board() -> None:
+  st.title("❓ 질문 게시판")
+  st.markdown(
+      "교육과정·졸업요건에 대해 궁금한 점을 자유롭게 질문하세요. "
+      "**선배들과 학과 운영자가 직접 답변**해 드립니다. "
+      "자주 나오는 질문은 홈 화면 **학과 FAQ**에 정리됩니다."
+  )
+
+  # ── 운영자 모드 ──────────────────────────────────────────────
+  with st.expander("🔑 운영자 모드"):
+    if st.session_state.is_admin:
+      st.success("✅ 운영자 모드가 켜져 있습니다. 질문·답변 옆 🗑️ 버튼으로 삭제할 수 있어요.")
+      if st.button("운영자 모드 끄기", key="admin_logout_btn"):
+        st.session_state.is_admin = False
+        st.rerun()
+    else:
+      admin_pw = st.text_input(
+          "운영자 비밀번호", type="password", key="admin_pw_input",
+      )
+      if st.button("운영자 로그인", key="admin_login_btn"):
+        if admin_pw == get_admin_password():
+          st.session_state.is_admin = True
+          st.rerun()
+        else:
+          st.error("비밀번호가 올바르지 않습니다.")
+
+  tab_목록, tab_질문 = st.tabs(["📋 질문 목록", "✍️ 질문하기"])
+
+  with tab_질문:
+    st.subheader("질문 작성")
+    with st.form("qna_post_form", clear_on_submit=True):
+      제목 = st.text_input("제목", placeholder="예: 교직이수 신청은 언제 하나요?")
+      c1, c2 = st.columns(2)
+      with c1:
+        작성자 = st.text_input("닉네임", placeholder="익명 가능")
+      with c2:
+        학번 = st.selectbox("학번 (선택)", ["", *STUDENT_YEARS, "기타"])
+      내용 = st.text_area(
+          "질문 내용",
+          placeholder="궁금한 내용을 자세히 적어 주세요. 자세할수록 정확한 답변을 받을 수 있어요!",
+          height=160,
+      )
+      if st.form_submit_button("질문 올리기", type="primary", use_container_width=True):
+        if not 제목.strip() or not 내용.strip():
+          st.warning("제목과 내용을 모두 입력해 주세요.")
+        else:
+          add_qna_post(제목, 작성자, 학번, 내용)
+          st.success("질문이 등록되었습니다! 답변이 달리면 이 게시판에서 확인할 수 있어요.")
+          st.rerun()
+
+  with tab_목록:
+    posts = get_qna_posts()
+    if not posts:
+      st.info("아직 등록된 질문이 없습니다. **질문하기** 탭에서 첫 질문을 남겨 보세요!")
+      return
+
+    답변완료 = sum(1 for p in posts if p.get("답변"))
+    st.caption(f"총 **{len(posts)}**개의 질문 · 답변 완료 **{답변완료}**개")
+
+    for post in posts:
+      replies = post.get("답변", [])
+      상태 = "✅ 답변완료" if replies else "⏳ 답변대기"
+      학번_표시 = f" · {post['학번']}" if post.get("학번") else ""
+
+      with st.container(border=True):
+        if st.session_state.is_admin:
+          head_col, del_col = st.columns([8, 1])
+          with head_col:
+            st.markdown(f"### {post['제목']}  <small>{상태}</small>", unsafe_allow_html=True)
+          with del_col:
+            if st.button("🗑️", key=f"del_post_{post['id']}", help="질문 삭제 (운영자)"):
+              delete_qna_post(post["id"])
+              st.success("질문이 삭제되었습니다.")
+              st.rerun()
+        else:
+          st.markdown(f"### {post['제목']}  <small>{상태}</small>", unsafe_allow_html=True)
+        st.caption(f"**{post['작성자']}**{학번_표시} · {post['작성일']}")
+        st.markdown(post["내용"])
+
+        # ── 답변 목록 ─────────────────────────────────────────
+        if replies:
+          st.markdown("---")
+          for r_idx, r in enumerate(replies):
+            if st.session_state.is_admin:
+              r_col, r_del = st.columns([8, 1])
+              with r_col:
+                st.markdown(f"↳ 💬 **{r['작성자']}** · {r['작성일']}")
+                st.markdown(r["내용"])
+              with r_del:
+                if st.button("🗑️", key=f"del_reply_{post['id']}_{r_idx}", help="답변 삭제 (운영자)"):
+                  delete_qna_reply(post["id"], r_idx)
+                  st.success("답변이 삭제되었습니다.")
+                  st.rerun()
+            else:
+              st.markdown(f"↳ 💬 **{r['작성자']}** · {r['작성일']}")
+              st.markdown(r["내용"])
+
+        # ── 답변 달기 ─────────────────────────────────────────
+        with st.expander("✍️ 답변 달기"):
+          with st.form(f"reply_form_{post['id']}", clear_on_submit=True):
+            r1, r2 = st.columns([1, 2.5])
+            with r1:
+              답변_작성자 = st.text_input(
+                  "닉네임", placeholder="예: 21학번 선배",
+                  key=f"reply_name_{post['id']}",
+              )
+            with r2:
+              답변_내용 = st.text_area(
+                  "답변 내용", height=100,
+                  key=f"reply_content_{post['id']}",
+              )
+            if st.form_submit_button("답변 등록", use_container_width=True):
+              if not 답변_내용.strip():
+                st.warning("답변 내용을 입력해 주세요.")
+              else:
+                add_qna_reply(post["id"], 답변_작성자, 답변_내용)
+                st.success("답변이 등록되었습니다!")
+                st.rerun()
+
+
+# =============================================================================
 # 페이지: 졸업요건 확인 (체크리스트 그리드 + 진행률 대시보드)
 # =============================================================================
 
@@ -1743,101 +2237,51 @@ def page_credit_calculator() -> None:
         save_user_data(st.session_state.student_id, get_current_user_save_data())
         st.success(f"✅ **{st.session_state.student_id}** 데이터가 저장되었습니다!")
     else:
-      st.info("💡 왼쪽 사이드바에서 학번을 입력하면 입력 내용을 저장·불러올 수 있습니다.")
+      st.info("💡 홈 화면의 **내 데이터 저장**에서 학번을 입력하면 입력 내용을 저장·불러올 수 있습니다.")
 
 
 # =============================================================================
-# 메인: 사이드바 메뉴 + 페이지 라우팅
+# 상단 내비게이션 (사이드바 대체) + 페이지 라우팅
 # =============================================================================
+
+def render_top_nav() -> None:
+  """모든 서브 페이지 상단에 표시되는 내비게이션 바."""
+  nav_items = [
+      ("🏠 홈", None),
+      ("🧮 졸업요건 확인", "🧮 졸업요건 확인"),
+      ("👨‍🏫 교수님별 강의", "👨‍🏫 교수님별 강의 조회"),
+      ("📚 교양 과목", "📚 교양 과목 안내"),
+      ("💡 졸업팁", "💡 졸업팁"),
+      ("❓ 질문 게시판", "❓ 질문 게시판"),
+  ]
+  cols = st.columns(len(nav_items))
+  for col, (label, menu) in zip(cols, nav_items):
+    is_active = (
+        (menu is None and st.session_state.show_home)
+        or (not st.session_state.show_home and st.session_state.active_menu == menu)
+    )
+    with col:
+      if st.button(
+          label,
+          use_container_width=True,
+          key=f"topnav_{label}",
+          type="primary" if is_active else "secondary",
+      ):
+        if menu is None:
+          st.session_state.show_home = True
+        else:
+          st.session_state.active_menu = menu
+          st.session_state.show_home = False
+        st.rerun()
+  st.markdown("")
+
 
 # 페이지·체크박스 렌더링 전에 저장 데이터 자동 복원
 try_auto_load_user_data()
 
-with st.sidebar:
-  st.header("🎓 생물교육과")
-  st.caption("24~26학번 교육과정")
-
-  if st.button("🏠 홈으로", use_container_width=True, type="primary"):
-    st.session_state.show_home = True
-    st.rerun()
-
-  current_index = 0
-  if st.session_state.active_menu in MENU_OPTIONS:
-    current_index = MENU_OPTIONS.index(st.session_state.active_menu)
-  menu = st.radio(
-      "메뉴",
-      MENU_OPTIONS,
-      index=current_index,
-      label_visibility="collapsed",
-      key="sidebar_menu_radio",
-  )
-  if st.session_state.show_home:
-    if menu != st.session_state.active_menu:
-      st.session_state.active_menu = menu
-      st.session_state.show_home = False
-  else:
-    st.session_state.active_menu = menu
-
-  st.divider()
-
-  # ── 학과 바로가기 ──────────────────────────────────────────────
-  st.subheader("🔗 바로가기")
-  st.link_button("🏫 생물교육과 홈페이지", DEPT_HOME_URL, use_container_width=True)
-  st.link_button("💼 아르바이트", JOB_BOARD_URL, use_container_width=True)
-
-  st.divider()
-
-  # ── 내 데이터 (학번 코드 저장) ──────────────────────────────────────
-  st.subheader("👤 내 데이터 저장")
-  st.caption(
-      "학번을 입력하고 **저장**하면 다음 방문 시 체크 표시까지 자동 복원됩니다.\n"
-      "저장 후 URL에 학번이 붙으니 북마크해 두세요."
-  )
-
-  # 저장된 학번을 입력란 기본값으로 표시 (위젯 키와 분리된 별도 변수)
-  _default_id = st.session_state.get("student_id", "")
-  _entered_id = st.text_input(
-    "학번 입력",
-    placeholder="예: 2024001",
-    value=_default_id,
-    label_visibility="collapsed",
-    key="sidebar_student_id_input",
-  )
-
-  col_load, col_save = st.columns(2)
-  with col_load:
-    if st.button("📂 불러오기", use_container_width=True, key="btn_load_user"):
-      sid = _entered_id.strip()
-      if sid:
-        remember_student_id(sid)
-        saved = load_user_data(sid)
-        if saved:
-          apply_user_data(saved)
-          st.session_state.user_logged_in = True
-          st.session_state._user_data_auto_loaded = True
-          st.success("데이터를 불러왔습니다!")
-          st.rerun()
-        else:
-          st.session_state.user_logged_in = True
-          st.info("저장된 데이터가 없습니다.\n졸업요건 확인 후 저장해 주세요.")
-      else:
-        st.warning("학번을 입력해 주세요.")
-  with col_save:
-    if st.button("💾 저장하기", use_container_width=True, type="primary", key="btn_save_user"):
-      sid = _entered_id.strip() or st.session_state.student_id
-      if sid:
-        remember_student_id(sid)
-        st.session_state.user_logged_in = True
-        save_user_data(sid, get_current_user_save_data())
-        st.success("저장 완료!")
-      else:
-        st.warning("먼저 학번을 입력해 주세요.")
-
-  if st.session_state.user_logged_in and st.session_state.student_id:
-    st.caption(f"✅ **{st.session_state.student_id}** 로 연결됨")
-
-  st.divider()
-  st.caption("🧬 전남대학교 생물교육과 · 24~26학번 교육과정 기준")
+# 서브 페이지에서만 상단 내비게이션 표시 (홈은 자체 빠른 메뉴가 있음)
+if not st.session_state.show_home:
+  render_top_nav()
 
 if st.session_state.show_home:
   page_home()
@@ -1847,6 +2291,8 @@ elif st.session_state.active_menu == "📚 교양 과목 안내":
   page_liberal_arts_catalog()
 elif st.session_state.active_menu == "💡 졸업팁":
   page_graduation_tips()
+elif st.session_state.active_menu == "❓ 질문 게시판":
+  page_qna_board()
 elif st.session_state.active_menu == "🧮 졸업요건 확인":
   page_credit_calculator()
 else:
