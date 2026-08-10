@@ -24,9 +24,238 @@ USER_DATA_DIR = DATA_DIR / "users"
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="생물교육과 교육과정 및 졸업요건",
-    page_icon="🍀",
+    page_icon="🧬",
     layout="wide",
 )
+
+# -----------------------------------------------------------------------------
+# 외부 바로가기 링크 — 주소가 바뀌면 여기만 수정하세요
+# -----------------------------------------------------------------------------
+DEPT_HOME_URL = "https://bioedu.jnu.ac.kr/bioedu/index.do"
+JOB_BOARD_URL = "https://www.jnu.ac.kr/WebApp/web/HOM/COM/Board/board.aspx?boardID=11"
+
+# -----------------------------------------------------------------------------
+# 전역 디자인 (CSS) — 생물교육과 그린 테마
+# -----------------------------------------------------------------------------
+def inject_custom_css() -> None:
+  st.markdown("""
+<style>
+/* ── 폰트: Pretendard (한글 최적화 모던 폰트) ─────────────────── */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css');
+
+html, body, [class*="css"], .stApp, button, input, textarea {
+  font-family: 'Pretendard Variable', 'Pretendard', -apple-system, 'Malgun Gothic', sans-serif !important;
+}
+
+/* ── 메인 배경 ────────────────────────────────────────────────── */
+.stApp {
+  background: linear-gradient(180deg, #eef7f1 0%, #f9fcfa 360px);
+}
+
+/* ── 제목 ─────────────────────────────────────────────────────── */
+h1, h2, h3 {
+  font-weight: 800 !important;
+  letter-spacing: -0.02em;
+  color: #0c3b2e;
+}
+
+/* ── 사이드바: 딥 그린 그라데이션 ─────────────────────────────── */
+[data-testid="stSidebar"] {
+  background: linear-gradient(180deg, #0b3d2e 0%, #062a1f 100%);
+}
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3, [data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span, [data-testid="stSidebar"] label,
+[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] {
+  color: #d9f3e5 !important;
+}
+[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,.12); }
+
+/* 사이드바 버튼 */
+[data-testid="stSidebar"] .stButton > button {
+  background: rgba(255,255,255,.07);
+  color: #eafff5 !important;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 12px;
+  font-weight: 600;
+  transition: all .15s ease;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+  background: rgba(255,255,255,.15);
+  border-color: rgba(255,255,255,.35);
+}
+[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+  background: linear-gradient(135deg, #34d399, #10b981);
+  border: none;
+  color: #052e21 !important;
+  font-weight: 800;
+}
+
+/* 사이드바 텍스트 입력창 */
+[data-testid="stSidebar"] [data-testid="stTextInput"] input {
+  background: #ffffff;
+  color: #0c3b2e !important;
+  border-radius: 10px;
+  border: none;
+}
+
+/* 사이드바 링크 버튼 */
+[data-testid="stSidebar"] .stLinkButton > a {
+  background: rgba(255,255,255,.07) !important;
+  color: #eafff5 !important;
+  border: 1px solid rgba(255,255,255,.16) !important;
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+}
+[data-testid="stSidebar"] .stLinkButton > a:hover {
+  background: rgba(255,255,255,.15) !important;
+  border-color: rgba(255,255,255,.35) !important;
+}
+
+/* ── 메인 영역 버튼 ───────────────────────────────────────────── */
+.stButton > button {
+  border-radius: 12px;
+  border: 1px solid #d5e9dd;
+  background: #ffffff;
+  color: #14432f;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(12,59,46,.06);
+  transition: all .15s ease;
+}
+.stButton > button:hover {
+  border-color: #10b981;
+  color: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(16,185,129,.18);
+}
+.stButton > button[kind="primary"] {
+  background: linear-gradient(135deg, #10b981, #059669);
+  border: none;
+  color: #ffffff;
+  font-weight: 700;
+}
+.stButton > button[kind="primary"]:hover {
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(5,150,105,.35);
+}
+
+/* 링크 버튼 (외부 바로가기) */
+.stLinkButton > a {
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+  border: 1px solid #d5e9dd !important;
+  box-shadow: 0 1px 2px rgba(12,59,46,.06) !important;
+  transition: all .15s ease !important;
+}
+.stLinkButton > a:hover {
+  border-color: #10b981 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(16,185,129,.18) !important;
+}
+
+/* ── 탭: 알약(pill) 스타일 ────────────────────────────────────── */
+.stTabs [data-baseweb="tab-list"] {
+  gap: 6px;
+  background: #e4f1e9;
+  padding: 6px;
+  border-radius: 14px;
+}
+.stTabs [data-baseweb="tab"] {
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-weight: 600;
+  color: #46705e;
+}
+.stTabs [aria-selected="true"] {
+  background: #ffffff !important;
+  color: #059669 !important;
+  box-shadow: 0 1px 4px rgba(12,59,46,.12);
+}
+
+/* ── 지표(metric) 카드화 ─────────────────────────────────────── */
+[data-testid="stMetric"] {
+  background: #ffffff;
+  border: 1px solid #e2efe7;
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(12,59,46,.05);
+}
+
+/* ── 진행률 바: 그린 그라데이션 ───────────────────────────────── */
+.stProgress > div > div > div > div {
+  background: linear-gradient(90deg, #34d399, #059669);
+  border-radius: 99px;
+}
+
+/* ── 펼침 상자(expander)·채팅 말풍선 ──────────────────────────── */
+[data-testid="stExpander"] {
+  background: #ffffff;
+  border: 1px solid #e2efe7 !important;
+  border-radius: 14px !important;
+  overflow: hidden;
+}
+[data-testid="stChatMessage"] {
+  background: #ffffff;
+  border: 1px solid #e6f1ea;
+  border-radius: 16px;
+}
+
+/* ── 홈 히어로 배너 ───────────────────────────────────────────── */
+.hero {
+  background: linear-gradient(120deg, #06392b 0%, #059669 60%, #34d399 130%);
+  border-radius: 24px;
+  padding: 2.6rem 2.4rem 2.4rem;
+  color: #ffffff;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 1.4rem;
+  box-shadow: 0 12px 32px rgba(6,57,43,.25);
+}
+.hero::after {
+  content: "🧬";
+  position: absolute;
+  right: 1rem;
+  bottom: -1.4rem;
+  font-size: 8rem;
+  opacity: .14;
+  transform: rotate(-12deg);
+}
+.hero-badge {
+  display: inline-block;
+  background: rgba(255,255,255,.16);
+  backdrop-filter: blur(4px);
+  padding: .35rem .95rem;
+  border-radius: 999px;
+  font-size: .82rem;
+  font-weight: 600;
+  margin-bottom: .95rem;
+  letter-spacing: .03em;
+}
+.hero h1 {
+  color: #ffffff !important;
+  font-size: 2.05rem;
+  line-height: 1.25;
+  margin: 0 0 .55rem 0;
+}
+.hero p {
+  color: #d7f5e6;
+  font-size: 1.02rem;
+  margin: 0;
+}
+
+/* 홈 빠른 메뉴 라벨 */
+.section-label {
+  font-size: .85rem;
+  font-weight: 700;
+  color: #46705e;
+  letter-spacing: .06em;
+  margin: .4rem 0 .5rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+inject_custom_css()
 
 # =============================================================================
 # ★★★ 학과 데이터 입력 구역 — 나중에 이 부분만 수정하세요 ★★★
@@ -400,41 +629,35 @@ def normalize_saved_course_checks(raw: dict) -> dict[str, bool]:
 
 
 def collect_course_checks_from_session() -> dict[str, bool]:
-  """저장용: chk_* 위젯 키 + course_checks를 합쳐 최신 체크 상태를 반환합니다."""
-  checks: dict[str, bool] = {}
-  checks.update(st.session_state.get("course_checks", {}))
-
-  for key, val in st.session_state.items():
-    if not isinstance(key, str) or not key.startswith("chk_"):
-      continue
-    body = key[4:]
-    for prefix in CHECKLIST_PREFIXES:
-      prefix_token = f"{prefix}_"
-      if body.startswith(prefix_token):
-        name = body[len(prefix_token):]
-        checks[name] = bool(val)
-        break
-
-  return {name: checked for name, checked in checks.items() if checked}
+  """저장용: course_checks 딕셔너리에서 체크된 과목만 반환합니다.
+  course_checks는 체크박스 렌더링 시 항상 동기화되므로 단일 진실 원천으로 사용합니다."""
+  return {
+      name: True
+      for name, checked in st.session_state.get("course_checks", {}).items()
+      if checked
+  }
 
 
 def apply_course_checks_to_widgets(checks: dict[str, bool]) -> None:
-  """course_checks를 세션·체크박스 위젯 키에 반영합니다."""
+  """저장된 체크 상태를 course_checks에 저장하고,
+  이미 렌더링된 chk_* 위젯 키를 모두 삭제해 다음 렌더링 시 course_checks로 재초기화되게 합니다."""
   st.session_state.course_checks = dict(checks)
-  for name in get_all_trackable_course_names():
-    st.session_state[checkbox_widget_key(name)] = bool(checks.get(name, False))
+  # 기존 chk_* 위젯 키 삭제 — Streamlit이 다음 렌더링 시 course_checks 값으로 새로 초기화
+  for k in list(st.session_state.keys()):
+    if isinstance(k, str) and k.startswith("chk_"):
+      del st.session_state[k]
 
 
-def get_widget_checked_credits(courses_df: pd.DataFrame, prefix: str) -> int:
-  """Streamlit 위젯 키에서 직접 체크 상태를 읽어 학점 합계를 반환합니다."""
+def get_widget_checked_credits(courses_df: pd.DataFrame, _prefix: str = "") -> int:
+  """course_checks 딕셔너리에서 학점 합계를 계산합니다 (단일 진실 원천)."""
   if courses_df.empty:
     return 0
-  total = 0
-  for _, row in courses_df.iterrows():
-    name = str(row["과목명"])
-    if st.session_state.get(checkbox_widget_key(name), False):
-      total += int(row.get("학점", 0))
-  return total
+  checks = st.session_state.get("course_checks", {})
+  return int(sum(
+      int(row.get("학점", 0))
+      for _, row in courses_df.iterrows()
+      if checks.get(str(row["과목명"]), False)
+  ))
 
 
 def apply_user_data(data: dict) -> None:
@@ -926,11 +1149,17 @@ def render_course_checklist(courses_df: pd.DataFrame, prefix: str) -> None:
 
     with cols[i % 3]:
       widget_key = checkbox_widget_key(name)
+      # 위젯 키가 없으면 course_checks에서 초기값 설정 (저장 데이터 복원 시 체크 표시)
+      if widget_key not in st.session_state:
+        st.session_state[widget_key] = bool(
+            st.session_state.course_checks.get(name, False)
+        )
       checked = st.checkbox(
           f"{name} ({credit}점)",
           key=widget_key,
           help=semester_hint or None,
       )
+      # course_checks를 항상 위젯 상태와 동기화 (저장 기능·학점 계산에 사용)
       st.session_state.course_checks[name] = checked
 
 
@@ -1017,31 +1246,46 @@ def render_teaching_license_input(항목: str) -> None:
 # =============================================================================
 
 def page_home() -> None:
-  st.title("🎓 생물교육과 교육과정 및 졸업요건")
-  st.markdown(
-      "**24~26학번** 교육과정 기준 | 궁금한 점을 챗봇에게 물어보거나 아래 메뉴를 이용하세요."
-  )
+  # ── 히어로 배너 ──────────────────────────────────────────────
+  st.markdown("""
+<div class="hero">
+  <div class="hero-badge">🍀 전남대학교 사범대학 · 24~26학번 맞춤</div>
+  <h1>생물교육과<br>교육과정 &amp; 졸업요건 가이드</h1>
+  <p>체크 한 번으로 졸업요건 자동 계산 · 교양 후기 · 선배들의 졸업팁까지</p>
+</div>
+""", unsafe_allow_html=True)
 
-  col1, col2, col3 = st.columns(3)
+  # ── 빠른 메뉴 ────────────────────────────────────────────────
+  st.markdown('<div class="section-label">MENU · 빠른 이동</div>', unsafe_allow_html=True)
+  col1, col2, col3, col4 = st.columns(4)
   with col1:
+    if st.button("🧮 졸업요건 확인", use_container_width=True, type="primary"):
+      st.session_state.active_menu = "🧮 졸업요건 확인"
+      st.session_state.show_home = False
+      st.rerun()
+  with col2:
     if st.button("👨‍🏫 교수님별 강의", use_container_width=True):
       st.session_state.active_menu = "👨‍🏫 교수님별 강의 조회"
       st.session_state.show_home = False
       st.rerun()
-  with col2:
+  with col3:
     if st.button("📚 교양 과목", use_container_width=True):
       st.session_state.active_menu = "📚 교양 과목 안내"
       st.session_state.show_home = False
       st.rerun()
-  with col3:
+  with col4:
     if st.button("💡 졸업팁 게시판", use_container_width=True):
       st.session_state.active_menu = "💡 졸업팁"
       st.session_state.show_home = False
       st.rerun()
-  if st.button("🧮 졸업요건 확인", use_container_width=True):
-    st.session_state.active_menu = "🧮 졸업요건 확인"
-    st.session_state.show_home = False
-    st.rerun()
+
+  # ── 외부 바로가기 ────────────────────────────────────────────
+  st.markdown('<div class="section-label">LINK · 학과 바로가기</div>', unsafe_allow_html=True)
+  link1, link2 = st.columns(2)
+  with link1:
+    st.link_button("🏫 생물교육과 홈페이지", DEPT_HOME_URL, use_container_width=True)
+  with link2:
+    st.link_button("💼 아르바이트 구인 게시판 (학원알바 정보)", JOB_BOARD_URL, use_container_width=True)
 
   st.divider()
   render_chatbot()
@@ -1343,7 +1587,7 @@ def page_credit_calculator() -> None:
   # 교직이론 과목 수 (위젯 키 직접 읽기)
   theory_cnt = sum(
       1 for n in TEACHING_THEORY_POOL
-      if st.session_state.get(checkbox_widget_key(n), False)
+      if st.session_state.course_checks.get(n, False)
   )
 
   # 세션 상태 동기화 (챗봇 분석에 사용)
@@ -1510,6 +1754,13 @@ with st.sidebar:
 
   st.divider()
 
+  # ── 학과 바로가기 ──────────────────────────────────────────────
+  st.subheader("🔗 바로가기")
+  st.link_button("🏫 생물교육과 홈페이지", DEPT_HOME_URL, use_container_width=True)
+  st.link_button("💼 알바 구인 게시판", JOB_BOARD_URL, use_container_width=True)
+
+  st.divider()
+
   # ── 내 데이터 (학번 코드 저장) ──────────────────────────────────────
   st.subheader("👤 내 데이터 저장")
   st.caption(
@@ -1560,12 +1811,7 @@ with st.sidebar:
     st.caption(f"✅ **{st.session_state.student_id}** 로 연결됨")
 
   st.divider()
-  st.caption(
-      "데이터:\n"
-      "· major_course_catalog.json\n"
-      "· liberal_arts_catalog.json\n"
-      "· data/ (후기·졸업팁·개인저장)"
-  )
+  st.caption("🧬 전남대학교 생물교육과 · 24~26학번 교육과정 기준")
 
 if st.session_state.show_home:
   page_home()
