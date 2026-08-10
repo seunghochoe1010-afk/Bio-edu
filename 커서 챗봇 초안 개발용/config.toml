@@ -1,9 +1,10 @@
-# Streamlit 기본 테마 설정 — 생물교육과 그린 테마
+# Streamlit 기본 테마 설정 — 생물교육과 밝은 그린 테마
 # 이 파일도 GitHub에 함께 올려야 배포된 앱에 적용됩니다.
+# 위치: 저장소 맨 위(root)의 .streamlit/config.toml
 
 [theme]
-primaryColor = "#10b981"            # 포인트 색 (에메랄드 그린)
-backgroundColor = "#f7faf8"         # 메인 배경 (아주 연한 그린빛 화이트)
-secondaryBackgroundColor = "#e9f4ee" # 입력창·위젯 배경
-textColor = "#1a2e25"               # 기본 글자색 (딥 그린 블랙)
+primaryColor = "#0ea371"             # 포인트 색 (그린)
+backgroundColor = "#f7faf8"          # 메인 배경 (밝은 그린빛 화이트)
+secondaryBackgroundColor = "#eef4f0" # 입력창·위젯 배경
+textColor = "#1d3a2e"                # 기본 글자색
 font = "sans serif"
