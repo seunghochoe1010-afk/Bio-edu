@@ -47,110 +47,144 @@ html, body, [class*="css"], .stApp, button, input, textarea {
   font-family: 'Pretendard Variable', 'Pretendard', -apple-system, 'Malgun Gothic', sans-serif !important;
 }
 
-/* ── 메인 배경 ────────────────────────────────────────────────── */
+/* ── 메인 배경: 밝고 깨끗하게 ─────────────────────────────────── */
 .stApp {
-  background: linear-gradient(180deg, #eef7f1 0%, #f9fcfa 360px);
+  background: #f7faf8;
 }
 
 /* ── 제목 ─────────────────────────────────────────────────────── */
 h1, h2, h3 {
   font-weight: 800 !important;
   letter-spacing: -0.02em;
-  color: #0c3b2e;
+  color: #17352a;
 }
 
-/* ── 사이드바: 딥 그린 그라데이션 ─────────────────────────────── */
+/* ── 사이드바: 밝은 화이트 + 옅은 경계선 ──────────────────────── */
 [data-testid="stSidebar"] {
-  background: linear-gradient(180deg, #0b3d2e 0%, #062a1f 100%);
+  background: #ffffff;
+  border-right: 1px solid #e6efe9;
 }
 [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3, [data-testid="stSidebar"] p,
-[data-testid="stSidebar"] span, [data-testid="stSidebar"] label,
-[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] {
-  color: #d9f3e5 !important;
+[data-testid="stSidebar"] h3 {
+  color: #17352a !important;
+  font-size: 1.05rem !important;
 }
-[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,.12); }
+[data-testid="stSidebar"] p, [data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] {
+  color: #45604f !important;
+}
+[data-testid="stSidebar"] hr { border-color: #e9f1ec; }
+
+/* 사이드바 메뉴(라디오): 동그라미 숨기고 메뉴 리스트처럼 */
+[data-testid="stSidebar"] [role="radiogroup"] > label {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  transition: background .12s ease;
+  margin-bottom: 2px;
+}
+[data-testid="stSidebar"] [role="radiogroup"] > label:hover {
+  background: #f0f7f2;
+}
+[data-testid="stSidebar"] [role="radiogroup"] > label > div:first-child {
+  display: none;   /* 라디오 동그라미 숨김 */
+}
+[data-testid="stSidebar"] [role="radiogroup"] > label:has(input:checked) {
+  background: #e3f4ea;
+}
+[data-testid="stSidebar"] [role="radiogroup"] > label:has(input:checked) p {
+  color: #0a7d55 !important;
+  font-weight: 700 !important;
+}
 
 /* 사이드바 버튼 */
 [data-testid="stSidebar"] .stButton > button {
-  background: rgba(255,255,255,.07);
-  color: #eafff5 !important;
-  border: 1px solid rgba(255,255,255,.16);
-  border-radius: 12px;
+  background: #ffffff;
+  color: #22503d !important;
+  border: 1px solid #dcebe2;
+  border-radius: 10px;
   font-weight: 600;
   transition: all .15s ease;
 }
 [data-testid="stSidebar"] .stButton > button:hover {
-  background: rgba(255,255,255,.15);
-  border-color: rgba(255,255,255,.35);
+  border-color: #0ea371;
+  color: #0a7d55 !important;
+  background: #f2faf6;
 }
 [data-testid="stSidebar"] .stButton > button[kind="primary"] {
-  background: linear-gradient(135deg, #34d399, #10b981);
+  background: #0ea371;
   border: none;
-  color: #052e21 !important;
-  font-weight: 800;
+  color: #ffffff !important;
+  font-weight: 700;
 }
 
 /* 사이드바 텍스트 입력창 */
 [data-testid="stSidebar"] [data-testid="stTextInput"] input {
-  background: #ffffff;
-  color: #0c3b2e !important;
+  background: #f4f8f5;
+  color: #17352a !important;
   border-radius: 10px;
-  border: none;
+  border: 1px solid #e0ece4;
 }
 
 /* 사이드바 링크 버튼 */
 [data-testid="stSidebar"] .stLinkButton > a {
-  background: rgba(255,255,255,.07) !important;
-  color: #eafff5 !important;
-  border: 1px solid rgba(255,255,255,.16) !important;
-  border-radius: 12px !important;
+  background: #ffffff !important;
+  color: #22503d !important;
+  border: 1px solid #dcebe2 !important;
+  border-radius: 10px !important;
   font-weight: 600 !important;
 }
 [data-testid="stSidebar"] .stLinkButton > a:hover {
-  background: rgba(255,255,255,.15) !important;
-  border-color: rgba(255,255,255,.35) !important;
+  border-color: #0ea371 !important;
+  color: #0a7d55 !important;
+  background: #f2faf6 !important;
 }
 
-/* ── 메인 영역 버튼 ───────────────────────────────────────────── */
+/* ── 메인 영역 버튼: 흰 카드 스타일 ───────────────────────────── */
 .stButton > button {
   border-radius: 12px;
-  border: 1px solid #d5e9dd;
+  border: 1px solid #e2ece6;
   background: #ffffff;
-  color: #14432f;
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(12,59,46,.06);
+  color: #234a39;
+  font-weight: 700;
+  min-height: 3rem;
+  box-shadow: 0 1px 3px rgba(18,63,46,.05);
   transition: all .15s ease;
 }
 .stButton > button:hover {
-  border-color: #10b981;
-  color: #059669;
+  border-color: #0ea371;
+  color: #0a7d55;
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(16,185,129,.18);
+  box-shadow: 0 6px 16px rgba(14,163,113,.14);
 }
 .stButton > button[kind="primary"] {
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: #0ea371;
   border: none;
   color: #ffffff;
-  font-weight: 700;
 }
 .stButton > button[kind="primary"]:hover {
   color: #ffffff;
-  box-shadow: 0 6px 18px rgba(5,150,105,.35);
+  background: #0b8a60;
+  box-shadow: 0 6px 18px rgba(14,163,113,.3);
 }
 
 /* 링크 버튼 (외부 바로가기) */
 .stLinkButton > a {
   border-radius: 12px !important;
-  font-weight: 600 !important;
-  border: 1px solid #d5e9dd !important;
-  box-shadow: 0 1px 2px rgba(12,59,46,.06) !important;
+  font-weight: 700 !important;
+  min-height: 3rem !important;
+  background: #ffffff !important;
+  color: #234a39 !important;
+  border: 1px solid #e2ece6 !important;
+  box-shadow: 0 1px 3px rgba(18,63,46,.05) !important;
   transition: all .15s ease !important;
 }
 .stLinkButton > a:hover {
-  border-color: #10b981 !important;
+  border-color: #0ea371 !important;
+  color: #0a7d55 !important;
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(16,185,129,.18) !important;
+  box-shadow: 0 6px 16px rgba(14,163,113,.14) !important;
 }
 
 /* ── 탭: 알약(pill) 스타일 ────────────────────────────────────── */
@@ -200,56 +234,48 @@ h1, h2, h3 {
   border-radius: 16px;
 }
 
-/* ── 홈 히어로 배너 ───────────────────────────────────────────── */
+/* ── 홈 히어로: 밝은 센터형 (참고 디자인 스타일) ──────────────── */
 .hero {
-  background: linear-gradient(120deg, #06392b 0%, #059669 60%, #34d399 130%);
-  border-radius: 24px;
-  padding: 2.6rem 2.4rem 2.4rem;
-  color: #ffffff;
-  position: relative;
-  overflow: hidden;
-  margin-bottom: 1.4rem;
-  box-shadow: 0 12px 32px rgba(6,57,43,.25);
-}
-.hero::after {
-  content: "🧬";
-  position: absolute;
-  right: 1rem;
-  bottom: -1.4rem;
-  font-size: 8rem;
-  opacity: .14;
-  transform: rotate(-12deg);
+  background: linear-gradient(180deg, #eef8f2 0%, #f7faf8 100%);
+  border-radius: 20px;
+  padding: 3rem 2rem 2.8rem;
+  text-align: center;
+  margin-bottom: 1.6rem;
 }
 .hero-badge {
   display: inline-block;
-  background: rgba(255,255,255,.16);
-  backdrop-filter: blur(4px);
-  padding: .35rem .95rem;
+  background: #dff2e8;
+  color: #0a7d55;
+  padding: .4rem 1.1rem;
   border-radius: 999px;
-  font-size: .82rem;
-  font-weight: 600;
-  margin-bottom: .95rem;
-  letter-spacing: .03em;
-}
-.hero h1 {
-  color: #ffffff !important;
-  font-size: 2.05rem;
-  line-height: 1.25;
-  margin: 0 0 .55rem 0;
-}
-.hero p {
-  color: #d7f5e6;
-  font-size: 1.02rem;
-  margin: 0;
-}
-
-/* 홈 빠른 메뉴 라벨 */
-.section-label {
   font-size: .85rem;
   font-weight: 700;
-  color: #46705e;
-  letter-spacing: .06em;
-  margin: .4rem 0 .5rem;
+  margin-bottom: 1.1rem;
+  letter-spacing: .02em;
+}
+.hero h1 {
+  color: #17352a !important;
+  font-size: 2.3rem;
+  line-height: 1.35;
+  margin: 0 0 .8rem 0;
+}
+.hero h1 .accent {
+  color: #0ea371;
+}
+.hero p {
+  color: #5c7468;
+  font-size: 1.05rem;
+  margin: 0;
+  line-height: 1.7;
+}
+
+/* 홈 섹션 라벨 */
+.section-label {
+  font-size: .82rem;
+  font-weight: 800;
+  color: #8aa596;
+  letter-spacing: .1em;
+  margin: 1.1rem 0 .5rem;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1246,12 +1272,12 @@ def render_teaching_license_input(항목: str) -> None:
 # =============================================================================
 
 def page_home() -> None:
-  # ── 히어로 배너 ──────────────────────────────────────────────
+  # ── 히어로 배너 (밝은 센터형) ────────────────────────────────
   st.markdown("""
 <div class="hero">
-  <div class="hero-badge">🍀 전남대학교 사범대학 · 24~26학번 맞춤</div>
-  <h1>생물교육과<br>교육과정 &amp; 졸업요건 가이드</h1>
-  <p>체크 한 번으로 졸업요건 자동 계산 · 교양 후기 · 선배들의 졸업팁까지</p>
+  <div class="hero-badge">🌱 전남대학교 생물교육과 · 24~26학번 맞춤</div>
+  <h1>내 <span class="accent">졸업요건</span>, 체크 한 번으로<br><span class="accent">한눈에</span> 확인하세요</h1>
+  <p>과목 체크만 하면 학점 자동 계산 · 교양 과목 후기 · 선배들의 졸업팁까지<br>생물교육과 학생을 위한 올인원 가이드</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1285,7 +1311,7 @@ def page_home() -> None:
   with link1:
     st.link_button("🏫 생물교육과 홈페이지", DEPT_HOME_URL, use_container_width=True)
   with link2:
-    st.link_button("💼 아르바이트 구인 게시판 (학원알바 정보)", JOB_BOARD_URL, use_container_width=True)
+    st.link_button("💼 아르바이트", JOB_BOARD_URL, use_container_width=True)
 
   st.divider()
   render_chatbot()
@@ -1757,7 +1783,7 @@ with st.sidebar:
   # ── 학과 바로가기 ──────────────────────────────────────────────
   st.subheader("🔗 바로가기")
   st.link_button("🏫 생물교육과 홈페이지", DEPT_HOME_URL, use_container_width=True)
-  st.link_button("💼 알바 구인 게시판", JOB_BOARD_URL, use_container_width=True)
+  st.link_button("💼 아르바이트", JOB_BOARD_URL, use_container_width=True)
 
   st.divider()
 
