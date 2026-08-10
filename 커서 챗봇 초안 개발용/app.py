@@ -522,7 +522,7 @@ MENU_OPTIONS = [
     "👨‍🏫 교수님별 강의 조회",
     "📚 교양 과목 안내",
     "💡 졸업팁",
-    "❓ 질문 게시판",
+    "❓ 질문·건의 게시판",
     "🧮 졸업요건 확인",
 ]
 
@@ -960,10 +960,11 @@ def get_qna_posts() -> list:
   return load_json_data(QNA_BOARD_PATH, [])
 
 
-def add_qna_post(제목: str, 작성자: str, 학번: str, 내용: str) -> None:
+def add_qna_post(제목: str, 작성자: str, 학번: str, 내용: str, 구분: str = "질문") -> None:
   posts = get_qna_posts()
   posts.insert(0, {
       "id": str(uuid.uuid4())[:8],
+      "구분": 구분,  # "질문" 또는 "건의사항"
       "제목": 제목.strip(),
       "작성자": 작성자.strip() or "익명",
       "학번": 학번.strip(),
@@ -1580,6 +1581,16 @@ def render_teaching_license_input(항목: str) -> None:
 # 페이지: 홈
 # =============================================================================
 
+def render_faq_section() -> None:
+  """홈 화면: 자주 묻는 질문 (CUSTOM_FAQ 클릭형 목록).
+  질문을 클릭하면 답변이 펼쳐집니다. 새 FAQ는 CUSTOM_FAQ에 추가하세요."""
+  st.subheader("💬 자주 묻는 질문")
+  st.caption("질문을 클릭하면 답변이 나옵니다. 더 궁금한 점은 **❓ 질문·건의 게시판**에 남겨 주세요!")
+  for q, a in CUSTOM_FAQ.items():
+    with st.expander(q):
+      st.markdown(a)
+
+
 def render_my_data_section() -> None:
   """홈 화면: 학번으로 내 데이터 저장·불러오기."""
   st.markdown('<div class="section-label">MY DATA · 내 데이터 저장</div>', unsafe_allow_html=True)
@@ -1637,7 +1648,7 @@ def page_home() -> None:
   # ── 히어로 배너 (밝은 센터형) ────────────────────────────────
   st.markdown("""
 <div class="hero">
-  <div class="hero-badge">🌱 전남대학교 생물교육과 · 24~26학번 맞춤</div>
+  <div class="hero-badge">🌱 전남대학교 생물교육과</div>
   <h1>내 <span class="accent">졸업요건</span>, 체크 한 번으로<br><span class="accent">한눈에</span> 확인하세요</h1>
   <p>과목 체크만 하면 학점 자동 계산 · 교양 과목 후기 · 선배들의 졸업팁까지<br>생물교육과 학생을 위한 올인원 가이드</p>
 </div>
@@ -1667,8 +1678,8 @@ def page_home() -> None:
       st.session_state.show_home = False
       st.rerun()
   with col5:
-    if st.button("❓ 질문 게시판", use_container_width=True):
-      st.session_state.active_menu = "❓ 질문 게시판"
+    if st.button("❓ 질문·건의", use_container_width=True):
+      st.session_state.active_menu = "❓ 질문·건의 게시판"
       st.session_state.show_home = False
       st.rerun()
 
@@ -1684,7 +1695,7 @@ def page_home() -> None:
   render_my_data_section()
 
   st.divider()
-  render_chatbot()
+  render_faq_section()
 
 
 # =============================================================================
@@ -1947,11 +1958,12 @@ def page_graduation_tips() -> None:
 # =============================================================================
 
 def page_qna_board() -> None:
-  st.title("❓ 질문 게시판")
+  st.title("❓ 질문·건의 게시판")
   st.markdown(
-      "교육과정·졸업요건에 대해 궁금한 점을 자유롭게 질문하세요. "
-      "**선배들과 학과 운영자가 직접 답변**해 드립니다. "
-      "자주 나오는 질문은 홈 화면 **학과 FAQ**에 정리됩니다."
+      "교육과정·졸업요건 **질문**은 물론, 학과나 이 사이트에 바라는 **건의사항**도 "
+      "자유롭게 남길 수 있는 소통의 공간입니다. "
+      "**선배들과 학과 운영자가 직접 답변**해 드리고, "
+      "자주 나오는 질문은 홈 화면 **자주 묻는 질문**에 정리됩니다."
   )
 
   # ── 운영자 모드 ──────────────────────────────────────────────
@@ -1972,56 +1984,60 @@ def page_qna_board() -> None:
         else:
           st.error("비밀번호가 올바르지 않습니다.")
 
-  tab_목록, tab_질문 = st.tabs(["📋 질문 목록", "✍️ 질문하기"])
+  tab_목록, tab_질문 = st.tabs(["📋 전체 글 목록", "✍️ 글쓰기 (질문·건의)"])
 
   with tab_질문:
-    st.subheader("질문 작성")
+    st.subheader("글 작성")
     with st.form("qna_post_form", clear_on_submit=True):
-      제목 = st.text_input("제목", placeholder="예: 교직이수 신청은 언제 하나요?")
+      구분 = st.radio(
+          "글 종류", ["❓ 질문", "💡 건의사항"], horizontal=True,
+      )
+      제목 = st.text_input("제목", placeholder="예: 교직이수 신청은 언제 하나요? / 이런 기능이 있으면 좋겠어요!")
       c1, c2 = st.columns(2)
       with c1:
         작성자 = st.text_input("닉네임", placeholder="익명 가능")
       with c2:
         학번 = st.selectbox("학번 (선택)", ["", *STUDENT_YEARS, "기타"])
       내용 = st.text_area(
-          "질문 내용",
-          placeholder="궁금한 내용을 자세히 적어 주세요. 자세할수록 정확한 답변을 받을 수 있어요!",
+          "내용",
+          placeholder="궁금한 점이나 건의하고 싶은 내용을 자세히 적어 주세요!",
           height=160,
       )
-      if st.form_submit_button("질문 올리기", type="primary", use_container_width=True):
+      if st.form_submit_button("글 올리기", type="primary", use_container_width=True):
         if not 제목.strip() or not 내용.strip():
           st.warning("제목과 내용을 모두 입력해 주세요.")
         else:
-          add_qna_post(제목, 작성자, 학번, 내용)
-          st.success("질문이 등록되었습니다! 답변이 달리면 이 게시판에서 확인할 수 있어요.")
+          add_qna_post(제목, 작성자, 학번, 내용, 구분="건의사항" if "건의" in 구분 else "질문")
+          st.success("글이 등록되었습니다! 답변이 달리면 이 게시판에서 확인할 수 있어요.")
           st.rerun()
 
   with tab_목록:
     posts = get_qna_posts()
     if not posts:
-      st.info("아직 등록된 질문이 없습니다. **질문하기** 탭에서 첫 질문을 남겨 보세요!")
+      st.info("아직 등록된 글이 없습니다. **글쓰기** 탭에서 첫 질문이나 건의사항을 남겨 보세요!")
       return
 
     답변완료 = sum(1 for p in posts if p.get("답변"))
-    st.caption(f"총 **{len(posts)}**개의 질문 · 답변 완료 **{답변완료}**개")
+    st.caption(f"총 **{len(posts)}**개의 글 · 답변 완료 **{답변완료}**개")
 
     for post in posts:
       replies = post.get("답변", [])
       상태 = "✅ 답변완료" if replies else "⏳ 답변대기"
+      구분_태그 = "💡 건의" if post.get("구분") == "건의사항" else "❓ 질문"
       학번_표시 = f" · {post['학번']}" if post.get("학번") else ""
 
       with st.container(border=True):
         if st.session_state.is_admin:
           head_col, del_col = st.columns([8, 1])
           with head_col:
-            st.markdown(f"### {post['제목']}  <small>{상태}</small>", unsafe_allow_html=True)
+            st.markdown(f"### {구분_태그} · {post['제목']}  <small>{상태}</small>", unsafe_allow_html=True)
           with del_col:
-            if st.button("🗑️", key=f"del_post_{post['id']}", help="질문 삭제 (운영자)"):
+            if st.button("🗑️", key=f"del_post_{post['id']}", help="글 삭제 (운영자)"):
               delete_qna_post(post["id"])
-              st.success("질문이 삭제되었습니다.")
+              st.success("글이 삭제되었습니다.")
               st.rerun()
         else:
-          st.markdown(f"### {post['제목']}  <small>{상태}</small>", unsafe_allow_html=True)
+          st.markdown(f"### {구분_태그} · {post['제목']}  <small>{상태}</small>", unsafe_allow_html=True)
         st.caption(f"**{post['작성자']}**{학번_표시} · {post['작성일']}")
         st.markdown(post["내용"])
 
@@ -2252,7 +2268,7 @@ def render_top_nav() -> None:
       ("👨‍🏫 교수님별 강의", "👨‍🏫 교수님별 강의 조회"),
       ("📚 교양 과목", "📚 교양 과목 안내"),
       ("💡 졸업팁", "💡 졸업팁"),
-      ("❓ 질문 게시판", "❓ 질문 게시판"),
+      ("❓ 질문·건의", "❓ 질문·건의 게시판"),
   ]
   cols = st.columns(len(nav_items))
   for col, (label, menu) in zip(cols, nav_items):
@@ -2291,7 +2307,7 @@ elif st.session_state.active_menu == "📚 교양 과목 안내":
   page_liberal_arts_catalog()
 elif st.session_state.active_menu == "💡 졸업팁":
   page_graduation_tips()
-elif st.session_state.active_menu == "❓ 질문 게시판":
+elif st.session_state.active_menu == "❓ 질문·건의 게시판":
   page_qna_board()
 elif st.session_state.active_menu == "🧮 졸업요건 확인":
   page_credit_calculator()
